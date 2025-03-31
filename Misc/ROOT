@@ -1,0 +1,22 @@
+session Misc = HOL +
+  description "Miscellaneous material"
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    "Word_Lib"
+    Data_Structures
+  theories
+    Array
+    Bitfields
+    Debug_Logging
+    ListAdditional
+    MultisetAdditional
+    SetAdditional
+    Undefined
+    Vector
+    Word_Cast_Simplifier
+  theories [document=false]
+    Misc
+  document_files
+    "root.tex"

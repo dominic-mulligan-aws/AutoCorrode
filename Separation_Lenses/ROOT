@@ -1,0 +1,15 @@
+session Separation_Lenses = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Shallow_Micro_Rust
+    Shallow_Separation_Logic
+  theories
+    SLens
+    SLens_Examples
+    SLens_Pullback
+  theories [document=false]
+    Separation_Lenses
+  document_files
+    "root.tex"

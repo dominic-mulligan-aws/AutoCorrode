@@ -1,0 +1,21 @@
+session Optics = HOL +
+  description "Optics (Lenses, Prisms, Foci)"
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    "Word_Lib"
+    Misc
+  theories
+    Array_Optics
+    Focus
+    Focused_Types
+    Lens
+    List_Optics
+    Prism
+    Result_Optics
+    Vector_Optics
+  theories [document=false]
+    Optics
+  document_files
+    "root.tex"

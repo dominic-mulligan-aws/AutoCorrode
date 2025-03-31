@@ -1,0 +1,16 @@
+session Data_Structures = HOL +
+  description "Miscellaneous material"
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    "Word_Lib"
+  theories
+    BraunTrees
+    BraunTreeAdditional
+    RedBlackTree_Extensional
+    Sorted_Association_List
+  theories [document=false]
+    Data_Structures
+  document_files
+    "root.tex"

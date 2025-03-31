@@ -1,0 +1,22 @@
+session Micro_Rust_Runtime = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Shallow_Micro_Rust
+    Separation_Lenses
+    Shallow_Separation_Logic
+    Micro_Rust_Interfaces
+    Byte_Level_Encoding
+  theories
+    Atomic_Resource
+    Hybrid_References
+    Raw_Physical_References
+    Raw_Physical_Memory_Trie
+    Raw_Physical_Memory_Trie_PP
+    Raw_Physical_Memory_Trie_Core
+    Raw_Physical_Memory_Trie_Example
+    Runtime_Heap
+    Shareable_Resource
+  theories [document=false]
+    Micro_Rust_Runtime

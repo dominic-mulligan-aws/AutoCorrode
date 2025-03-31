@@ -1,0 +1,13 @@
+session Autogen = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    Misc
+    Optics
+  theories [document=false]
+    AutoCommon
+    AutoLens
+    AutoLocality
+    Autogen
+    AutoLocality_Test0
+    AutoLocality_Test1
+    AutoLocality_Test2

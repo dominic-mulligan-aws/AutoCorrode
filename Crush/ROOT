@@ -1,0 +1,17 @@
+session Crush = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Misc
+    Micro_Rust_Parsing_Frontend
+    Micro_Rust_Interfaces_Core
+    Shallow_Micro_Rust
+    Shallow_Separation_Logic
+  theories [document=false]
+    Examples
+    Base
+    Separation_Logic_Tactics
+    Crush
+  document_files
+    "root.tex"

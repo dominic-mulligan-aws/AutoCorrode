@@ -1,0 +1,20 @@
+session Micro_Rust_Interfaces = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Library"
+    Shallow_Separation_Logic
+    Shallow_Micro_Rust
+    Micro_Rust_Std_Lib
+    Separation_Lenses
+    Crush
+  theories
+    Global_Perm_Store
+    Pair_References
+    Raw_Physical_Memory_References
+    Read_Write_Resource
+    Transfer_Raw_Physical_Memory
+    Transfer_References
+  theories [document=false]
+    Micro_Rust_Interfaces
+  document_files
+    "root.tex"

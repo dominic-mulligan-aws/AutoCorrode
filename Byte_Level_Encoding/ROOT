@@ -1,0 +1,18 @@
+session Byte_Level_Encoding = HOL +
+  description "Miscellaneous material"
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    "Word_Lib"
+    Optics
+    Misc
+  theories
+    Byte_Encoding_Word_Nat
+    Byte_Parser
+    Focus_Parser
+    Niche_Encoding_Option_NonNull
+  theories [document=false]
+    Byte_Level_Encoding
+  document_files
+    "root.tex"

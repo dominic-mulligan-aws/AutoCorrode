@@ -1,0 +1,27 @@
+session Shallow_Separation_Logic = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Shallow_Micro_Rust
+  theories
+    Apartness
+    Assertion_Language
+    Assertion_Triple
+    Function_Contract
+    Locality
+    Permissioned_Heap
+    Precision
+    Representability
+    Restriction
+    Separation_Algebra
+    Shareable_Value
+    Share_Map
+    Tree_Shares
+    Triple
+    Weak_Triple
+    Weakest_Precondition 
+  theories [document=false]
+    Shallow_Separation_Logic
+  document_files
+    "root.tex"

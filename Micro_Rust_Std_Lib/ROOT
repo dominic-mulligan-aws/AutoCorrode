@@ -1,0 +1,27 @@
+session Micro_Rust_Std_Lib = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Separation_Lenses
+    Shallow_Micro_Rust
+    Shallow_Separation_Logic
+    Crush
+    Micro_Rust_Interfaces_Core
+  theories
+    StdLib_All
+    StdLib_Arithmetic
+    StdLib_Contracts
+    StdLib_Exception
+    StdLib_Iterators
+    StdLib_Logging
+    StdLib_Option
+    StdLib_Ordering
+    StdLib_Slice
+    StdLib_References
+    StdLib_Result
+    StdLib_Tuple
+  theories [document=false]
+    Micro_Rust_Std_Lib
+  document_files
+    "root.tex"
