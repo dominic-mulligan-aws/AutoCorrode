@@ -37,7 +37,7 @@ ISABELLE_FLAGS?=-b -j 1 -o "threads=$(AVAILABLE_CORES)" -v
 ISABELLE_JEDIT_FLAGS?=
 
 jedit: register-afp-components
-	$(ISABELLE_HOME)/isabelle jedit $(ISABELLE_JEDIT_FLAGS) ./**/*.thy &
+	$(ISABELLE_HOME)/isabelle jedit $(ISABELLE_JEDIT_FLAGS) -l HOL -d . ./AutoCorrode.thy  &
 
 register-afp-components:
 	$(ISABELLE_HOME)/isabelle components -u $(AFP_COMPONENT_BASE)/Word_Lib
