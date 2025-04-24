@@ -79,7 +79,7 @@ This session contains documentation and examples illustrating how to use AutoCor
 
 ### Micro_Rust_Interfaces[_Core]
 
-This session define locales for modelling the verification context. For example, [Micro_Rust_Examples_Core](References.thy) defines the `Reference` locale which provides axioms for reasoning about references and mutable local variables in µRust. It also defines "transfer locales" which use separation lenses (see Optics, above) to extend interpretations of the interface locales to larger separation algebras.
+This session define locales for modelling the verification context. For example, [References.thy](Micro_Rust_Interfaces_Core/References.thy) defines the `Reference` locale which provides axioms for reasoning about references and mutable local variables in µRust. It also defines "transfer locales" which use separation lenses (see Optics, above) to extend interpretations of the interface locales to larger separation algebras.
 
 ### Micro_Rust_Parsing_Frontend
 
