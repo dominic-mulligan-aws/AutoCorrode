@@ -10,7 +10,7 @@ begin
 definition range_new_contract :: \<open>'a \<Rightarrow> 'a \<Rightarrow> ('s::sepalg, 'a range, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>range_new_contract b e \<equiv>
      let pre  = \<langle>True\<rangle>;
-         post = \<lambda>r. \<langle>r = Range b e\<rangle>
+         post = \<lambda>r. \<langle>r = make_range b e\<rangle>
       in make_function_contract pre post\<close>
 ucincl_auto range_new_contract
 
@@ -134,25 +134,14 @@ definition slice_index_range :: \<open>('a, 'b, 'v list) ref \<Rightarrow> 'w::{
 
 definition list_index_range_contract :: \<open>'t list \<Rightarrow> 'w::{len} word range \<Rightarrow> ('s, 't list, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>list_index_range_contract xs r \<equiv>
-     let pre  =
-        \<langle>case r of
-           RangeEq b e \<Rightarrow> unat e < length xs
-         | Range   b e \<Rightarrow> unat e \<le> length xs\<rangle>;
+     let pre  = \<langle>unat (end r) \<le> length xs\<rangle>;
          post = \<lambda>res.
-           (case r of
-              Range   s e \<Rightarrow>
-                if s \<ge> e then
-                  \<langle>res = []\<rangle>
-                else
-                  \<langle>res = List.take (unat (e - s)) (List.drop (unat s) xs)\<rangle>
-            | RangeEq s e \<Rightarrow>
-                if s > e then
-                  \<langle>res = []\<rangle>
-                else
-                  \<langle>res = List.take (Suc (unat (e - s))) (List.drop (unat s) xs)\<rangle>)
+                  if start r \<ge> end r then
+                    \<langle>res = []\<rangle>
+                  else
+                    \<langle>res = List.take (unat (end r - start r)) (List.drop (unat (start r)) xs)\<rangle>
       in make_function_contract pre post\<close>
-ucincl_proof list_index_range_contract
-  by (clarsimp split!: range.splits; intro conjI impI; ucincl_solve)
+ucincl_auto list_index_range_contract
 
 lemma list_index_range_spec [crush_specs]:
   shows \<open>\<Gamma> ; list_index_range xs r \<Turnstile>\<^sub>F list_index_range_contract xs r\<close>
@@ -174,10 +163,8 @@ instantiation range :: (generate_debug)generate_debug
 begin
 
 fun generate_debug_range :: \<open>'a range \<Rightarrow> log_data\<close> where
-  \<open>generate_debug_range (Range lo hi) =
-     str ''(''#generate_debug lo@[str ''..<'']@generate_debug hi@[str '')'']\<close> |
-  \<open>generate_debug_range (RangeEq lo hi) =
-     str ''(''#generate_debug lo@[str ''..'']@generate_debug hi@[str '')'']\<close>
+  \<open>generate_debug_range r =
+     str ''(''#generate_debug (start r)@[str ''..<'']@generate_debug (end r)@[str '')'']\<close>
 
 instance ..
 

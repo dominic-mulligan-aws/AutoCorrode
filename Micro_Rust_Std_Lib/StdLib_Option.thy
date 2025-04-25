@@ -83,7 +83,8 @@ notation_nano_rust_function urust_func_option_is_some ("is_some")
 definition option_is_some_contract :: 
   \<open>'a option \<Rightarrow> ('s::{sepalg}, bool, 'abort) function_contract\<close>
   where [crush_contracts]: \<open>option_is_some_contract res \<equiv>
-    let pre = UNIV; post = \<lambda>r. \<langle>r = Not (Option.is_none res)\<rangle>
+    let pre  = UNIV;
+        post = \<lambda>r. \<langle>r \<longleftrightarrow> \<not>Option.is_none res\<rangle>
     in make_function_contract pre post\<close>
 ucincl_auto option_is_some_contract
 

@@ -124,7 +124,7 @@ ucincl_proof reverse_unlink_contract
 
 lemma reverse_unlink_spec[crush_specs]:
   shows \<open>\<Gamma>; reverse_unlink n ll tmp0 tmp1 \<Turnstile>\<^sub>F reverse_unlink_contract n ll tmp0 tmp1 ts rem\<close>
-  apply (crush_boot f:reverse_unlink_def contract: reverse_unlink_contract_def)
+  apply (crush_boot f: reverse_unlink_def contract: reverse_unlink_contract_def)
   apply crush_base
   apply (ucincl_discharge\<open>
     rule_tac INV=\<open>\<lambda>_ i.
