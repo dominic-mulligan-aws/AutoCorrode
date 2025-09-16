@@ -121,7 +121,7 @@ qed
 
 setup_lifting type_definition_nonzero_u64
 
-lift_definition nonzerou64_new_core :: \<open>64 word \<Rightarrow> nonzero_u64 option\<close> is
+lift_definition (code_dt) nonzerou64_new_core :: \<open>64 word \<Rightarrow> nonzero_u64 option\<close> is
   \<open>\<lambda>(n::64 word). if n = 0 then None else Some n\<close> by simp
 
 definition nonzerou64_new :: \<open>64 word \<Rightarrow> ('machine, nonzero_u64 option, 'abort, 'i, 'o) function_body\<close> where
