@@ -9,6 +9,43 @@ theory WordAdditional
 begin
 (*>*)
 
+
+section \<open>Lukas's experimental extension for numerals and order\<close>
+
+(*Off by default: to activate, use note [[numeral_aware]] in a local proof scope*)
+
+ML \<open>
+  val numeral_cfg = Attrib.setup_config_bool @{binding "numeral_aware"} (K false)
+\<close>
+
+local_setup \<open>
+let
+  fun numeral_hook order_kind {eq, le, lt} ctxt decomp_prems =
+    if Config.get ctxt numeral_cfg then
+    let
+      val nums =
+        decomp_prems
+        |> maps (fn (_, (_, _, (t1, t2))) => [t1, t2])
+        |> maps (try (HOLogic.dest_number #> snd) #> the_list)
+        |> sort_distinct int_ord
+      val num_pairs = take (length nums - 1) nums ~~ drop 1 nums
+      val ty = Term.argument_type_of eq 0
+      val mk_lt_num_pair =
+        apply2 (HOLogic.mk_number ty)
+        #> (fn (n1, n2) => lt $ n1 $ n2)
+        #> HOLogic.mk_Trueprop
+      fun num_pair_thm (n1, n2) =
+        Goal.prove ctxt [] [] (mk_lt_num_pair (n1, n2))
+          (fn {prems, context} => Code_Simp.dynamic_tac context 1)
+    in
+      maps (try num_pair_thm #> the_list) num_pairs
+    end
+    else []
+in
+  HOL_Base_Order_Tac.declare_insert_prems_hook (@{binding \<open>numerals\<close>}, numeral_hook)
+end
+\<close>
+
 section \<open>Lemmas for reasoning about inequalities\<close>
 
 text\<open>Our strategy for dealing with inequalities between instances \<^type>\<open>nat\<close> and
@@ -59,7 +96,7 @@ lemma ucast_ucast_eq:
     fixes x :: \<open>'l::{len} word\<close>
   assumes \<open>unat x < 2^LENGTH('k::{len})\<close>
     shows \<open>ucast (ucast x::'k word) = x\<close>
-by (metis assms bintr_uint take_bit_nat_eq_self unsigned_ucast_eq unsigned_word_eqI verit_comp_simplify1(2))
+by (metis assms bintr_uint take_bit_nat_eq_self unsigned_ucast_eq unsigned_word_eqI order_refl)
 
 lemma ucast_ucast_16_64_eq [word_nat_simps]:
     fixes x :: \<open>64 word\<close>
@@ -159,28 +196,35 @@ lemma word_range_sorted:
     shows \<open>sorted (List.map (Word.word_of_nat :: nat \<Rightarrow> 'l word) [M..<N])\<close>
 using assms by (auto simp add: of_nat_inverse word_of_nat_le intro!: sorted_list_map_mono sorted_upt)
 
+lemma add_word_lessI:
+    fixes a :: \<open>'a::{len} word\<close>
+  assumes \<open>n \<le> b\<close> \<open>a + word_of_nat b < c\<close>
+      and \<open>unat a + b < 2 ^ LENGTH('a)\<close>
+    shows \<open>a + word_of_nat n < c\<close>
+proof -
+  from assms have \<open>a + word_of_nat n \<le> a + word_of_nat b\<close>
+    by (metis add.commute add_lessD1 unat_of_nat_eq word_add_le_mono2 word_of_nat_le)
+  with assms show ?thesis
+    by simp
+qed
+
 lemma set_of_wordlist:
     fixes M N :: \<open>nat\<close>
-  assumes \<open>0 \<le> M\<close> and \<open>M < N\<close>
+  assumes \<open>0 \<le> M\<close>
+      and \<open>M < N\<close>
       and \<open>N < 2^LENGTH('l::{len})\<close>
     shows \<open>set (List.map Word.of_nat [M..<N]) = {v::'l word. Word.of_nat M \<le> v \<and> v < Word.of_nat N}\<close>
 proof -
-  have \<open>set (List.map Word.of_nat [M..<N]) = Word.of_nat ` (set [M..<N])\<close>
-    by auto
-  moreover have \<open>\<dots> = Word.of_nat ` {M..<N}\<close>
-    by auto
-  moreover have \<open>\<dots> = {v::'l word. Word.of_nat M \<le> v \<and> v < Word.of_nat N}\<close>
-    using assms by (auto simp add: of_nat_inverse word_of_nat_le word_of_nat_less) (metis
-      atLeastLessThan_iff image_iff le_eq_less_or_eq le_unat_uoi unat_less_helper unat_ucast_eq
-      word_less_eq_iff_unsigned word_nat_cases)
- from this show ?thesis
-   by auto
+  from assms have \<open>\<And>a::'l word. word_of_nat M \<le> a \<Longrightarrow> a < word_of_nat N \<Longrightarrow> \<exists>b\<ge>M. b < N \<and> a = word_of_nat b\<close>
+    by (metis const_le_unat order.strict_trans unat_less_helper word_unat.Rep_inverse)
+  then show ?thesis
+    using assms by (auto simp: of_nat_inverse word_of_nat_le word_of_nat_less image_iff Bex_def)
 qed
 
 lemma ucast_16_64_inj:
   assumes \<open>(ucast::16 word \<Rightarrow> 64 word) x = ucast y\<close>
     shows \<open>x = y\<close>
-using assms by (rule ucast_up_inj, simp)
+by (metis assms unat_ucast_16_to_64 unsigned_word_eqI)
 
 (*<*)
 context
@@ -273,7 +317,7 @@ lemma unat_word_of_nat64_less:
   assumes \<open>unat w < m\<close>
       and \<open>m < 2^64\<close>
     shows \<open>w < word_of_nat m\<close>
-  by (metis assms len32 len_bit0 numeral_Bit0_eq_double unat_less_iff)
+by (metis assms len32 len_bit0 numeral_Bit0_eq_double unat_less_iff)
 
 lemma word_div_mul_bound:
     fixes a b c :: \<open>'l::{len} word\<close>
@@ -296,8 +340,9 @@ lemma le_unat_uoi':
 using assms by (meson le_unat_uoi less_or_eq_imp_le)
 
 lemma image_word_of_nat_atLeastLessThan:
-  assumes \<open>a < 2 ^ LENGTH('a::len)\<close> and \<open>b < 2 ^ LENGTH('a)\<close>
-  shows \<open>word_of_nat ` {a..<b} = {word_of_nat a::'a word..<word_of_nat b}\<close>
+  assumes \<open>a < 2 ^ LENGTH('a::{len})\<close>
+      and \<open>b < 2 ^ LENGTH('a)\<close>
+    shows \<open>word_of_nat ` {a..<b} = {word_of_nat a::'a word..<word_of_nat b}\<close>
 proof -
   have \<open>\<exists>v\<in>{a..<b}. w = word_of_nat v\<close>
     if \<open>word_of_nat a \<le> w\<close> and \<open>w < word_of_nat b\<close> for w :: \<open>'a word\<close>
@@ -308,8 +353,9 @@ proof -
 qed
 
 lemma image_word_of_nat_atLeastAtMost:
-  assumes \<open>a < 2 ^ LENGTH('a::len)\<close> and \<open>b < 2 ^ LENGTH('a)\<close>
-  shows \<open>word_of_nat ` {a..b} = {word_of_nat a::'a word..word_of_nat b}\<close>
+  assumes \<open>a < 2 ^ LENGTH('a::{len})\<close>
+      and \<open>b < 2 ^ LENGTH('a)\<close>
+    shows \<open>word_of_nat ` {a..b} = {word_of_nat a::'a word..word_of_nat b}\<close>
 proof -
   have \<open>\<exists>v\<in>{a..b}. w = word_of_nat v\<close>
     if \<open>word_of_nat a \<le> w\<close> and \<open>w \<le> word_of_nat b\<close> for w :: \<open>'a word\<close>
@@ -320,7 +366,7 @@ proof -
 qed
 
 lemma image_unat_atLeastLessThan:
-  \<open>unat ` {a..<b} = {unat a..<unat b}\<close>
+  shows \<open>unat ` {a..<b} = {unat a..<unat b}\<close>
 proof
   show \<open>unat ` {a..<b} \<subseteq> {unat a..<unat b}\<close>
     using unat_arith_simps(2) word_less_eq_iff_unsigned by fastforce
@@ -331,7 +377,7 @@ proof
 qed
 
 lemma image_unat_atLeastAtMost:
-  \<open>unat ` {a..b} = {unat a..unat b}\<close>
+  shows \<open>unat ` {a..b} = {unat a..unat b}\<close>
 proof
   show \<open>unat ` {a..b} \<subseteq> {unat a..unat b}\<close>
     using unat_arith_simps(2) word_less_eq_iff_unsigned by fastforce
@@ -427,7 +473,14 @@ text \<open>Examples of use\<close>
 
 lemma
     fixes m :: \<open>'a::{len} word\<close>
-  assumes \<open>m \<le> 6\<close>  \<open>P 0\<close> \<open>P 1\<close> \<open>P 2\<close> \<open>P 3\<close> \<open>P 4\<close> \<open>P 5\<close> \<open>P 6\<close>
+    assumes \<open>m \<le> 6\<close>
+        and \<open>P 0\<close>
+        and \<open>P 1\<close>
+        and \<open>P 2\<close>
+        and \<open>P 3\<close>
+        and \<open>P 4\<close>
+        and \<open>P 5\<close>
+        and \<open>P 6\<close>
     shows \<open>P m\<close>
 using assms by (force elim!: word_leE)
 
@@ -472,9 +525,8 @@ lemma word_align_down_plus_pow2:
     fixes x :: \<open>64 word\<close>
   assumes \<open>is_aligned x (Suc n)\<close>
     shows \<open>word_align_down (x + (2^n)) n = word_align_down x n OR (2^n)\<close>
-using assms by (simp add: neg_mask_add t2n_mask_eq_if) (metis (no_types, lifting) and_neq_0_is_nth
-  is_aligned_neg_mask is_aligned_neg_mask_eq is_aligned_nth lessI less_or_eq_imp_le
-  word_plus_and_or_coroll)
+using assms by (simp add: neg_mask_add t2n_mask_eq_if is_aligned_neg_mask_weaken
+  is_aligned_nth nth_is_and_neq_0 flip: disjunctive_add2)
 
 abbreviation word64_of_nat :: \<open>nat \<Rightarrow> 64 word\<close> where
   \<open>word64_of_nat \<equiv> word_of_nat\<close>
@@ -483,7 +535,7 @@ lemma word64_div_mono:
     fixes x y z :: \<open>64 word\<close>
   assumes \<open>x \<le> y\<close>
     shows \<open>x div z \<le> y div z\<close>
-  using assms by (simp add: div_le_mono unat_div word_le_nat_alt)
+using assms by (simp add: div_le_mono unat_div word_le_nat_alt)
 
 end
 (*>*)

@@ -18,24 +18,22 @@ one may want to instantiate such implementation at models of references that are
 raw memory. Care is therefore taken to stay generic in the reference interface.\<close>
 
 datatype_record ('addr, 'fv, 't) ll_node_raw =
-  data :: 't
+  data   :: 't
   "next" :: \<open>('addr, 'fv) gref option\<close>
 micro_rust_record ll_node_raw
 
 locale ll_example_basic = reference reference_types
-  for
-    \<comment>\<open>We need reference support\<close>
-    reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> +
+      for \<comment> \<open>We need reference support\<close>
+         reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> +
 
-  \<comment>\<open>In addition to the type of 'global' addresses (think: union of logical heap addresses
-  and physical addresses), specify 'local' address type used in linked list nodes\<close>
-  fixes caddr_prism :: \<open>('addr, 'caddr) prism\<close>
+      \<comment> \<open>In addition to the type of 'global' addresses (think: union of logical heap addresses
+          and physical addresses), specify 'local' address type used in linked list nodes\<close>
+    fixes caddr_prism :: \<open>('addr, 'caddr) prism\<close>
 
-  \<comment>\<open>We also need a way to view a global value as a linked list node.
-  For example, if references are memory-backed, the conversion between linkedd list nodes
-  and byte lists would be captured here. This can include things like niche encodings.\<close>
-  and ll_focus :: \<open>('gv, ('caddr, 'gv, 't) ll_node_raw) focus\<close>
-
+      \<comment> \<open>We also need a way to view a global value as a linked list node.
+          For example, if references are memory-backed, the conversion between linkedd list nodes
+          and byte lists would be captured here. This can include things like niche encodings.\<close>
+      and ll_focus :: \<open>('gv, ('caddr, 'gv, 't) ll_node_raw) focus\<close>
   assumes caddr_prism_valid: \<open>is_valid_prism caddr_prism\<close>
 begin
 
@@ -52,10 +50,10 @@ abbreviation ll_ptr_as_ref' ::
 abbreviation \<open>ll_ptr_as_ref \<equiv> Option.map_option ll_ptr_as_ref'\<close>
 
 \<comment>\<open>Bounded reversal of linked lists of uRust references\<close>
-definition reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) ref
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) ref
-  \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
+definition reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option \<Rightarrow>
+      ('addr, 'gv, ('caddr, 'gv) gref option) ref \<Rightarrow>
+      ('addr, 'gv, ('caddr, 'gv) gref option) ref \<Rightarrow>
+      ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>reverse_unlink n orig cur_raw last_raw \<equiv> FunctionBody \<lbrakk>
       last_raw = None;
       cur_raw = orig;
@@ -76,11 +74,10 @@ definition reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref opt
   \<rbrakk>\<close>
 
 \<comment>\<open>Recursive predicate capturing the abstract content of a linked list of uRust references\<close>
-fun ll_points_to ::
-   \<open>'t list                      \<comment>\<open>abstracted prefix of linked list\<close>
-    \<Rightarrow> ('caddr, 'gv) gref option \<comment>\<open>concrete linked list\<close>
-    \<Rightarrow> ('caddr, 'gv) gref option \<comment>\<open>remainder of linked list\<close>
-    \<Rightarrow> 's assert\<close> where
+fun ll_points_to :: \<open>'t list         \<comment> \<open>abstracted prefix of linked list\<close>
+      \<Rightarrow> ('caddr, 'gv) gref option   \<comment> \<open>concrete linked list\<close>
+      \<Rightarrow> ('caddr, 'gv) gref option   \<comment> \<open>remainder of linked list\<close>
+      \<Rightarrow> 's assert\<close> where
   \<open>ll_points_to [] x y     = \<langle>x=y\<rangle>\<close>
 | \<open>ll_points_to (d # ds) None _ = \<langle>False\<rangle>\<close>
 | \<open>ll_points_to (d # ds) (Some ref) remainder =
@@ -88,16 +85,15 @@ fun ll_points_to ::
              let next_ref_opt = ll_node_raw.next r in
            typed_ref \<mapsto>\<langle>\<top>\<rangle> g\<down>r
          \<star> \<langle>ll_node_raw.data r = d\<rangle>
-         \<star> (ll_points_to ds next_ref_opt remainder))
-  \<close>
+         \<star> (ll_points_to ds next_ref_opt remainder))\<close>
 
 lemma ll_points_to_None:
   shows \<open>ll_points_to ds None rem = \<langle>ds = []\<rangle> \<star> \<langle>rem = None\<rangle>\<close>
-  by (cases ds; clarsimp simp add: asepconj_simp apure_def)
+by (cases ds; clarsimp simp add: asepconj_simp apure_def)
 
-lemma ucincl_ll_points_to[ucincl_intros]:
+lemma ucincl_ll_points_to [ucincl_intros]:
   shows \<open>ucincl (ll_points_to ds ll rem)\<close>
-  by (induction ds; cases ll; auto intro: ucincl_intros)
+by (induction ds; cases ll; auto intro: ucincl_intros)
 
 definition reverse_unlink_contract ::
    \<open>64 word
@@ -122,7 +118,7 @@ definition reverse_unlink_contract ::
 ucincl_proof reverse_unlink_contract
   by (auto split!: prod.splits intro: ucincl_intros)
 
-lemma reverse_unlink_spec[crush_specs]:
+lemma reverse_unlink_spec [crush_specs]:
   shows \<open>\<Gamma>; reverse_unlink n ll tmp0 tmp1 \<Turnstile>\<^sub>F reverse_unlink_contract n ll tmp0 tmp1 ts rem\<close>
   apply (crush_boot f: reverse_unlink_def contract: reverse_unlink_contract_def)
   apply crush_base
@@ -134,9 +130,8 @@ lemma reverse_unlink_spec[crush_specs]:
            ll_points_to (rev (take i ts)) v_last None \<star>
            ll_points_to (drop i ts) v_cur rem
     )\<close> and \<tau>=\<open>\<lambda>_.\<langle>False\<rangle>\<close>
-    in wp_raw_for_loop_framedI'
-  \<close>)
-  apply (fastcrush_base simp add: ll_points_to_None Many_More.drop_Suc_nth)
+    in wp_raw_for_loop_framedI'\<close>)
+  apply (fastcrush_base simp add: Many_More.drop_Suc_nth) 
   apply (fastcrush_base split!: option.splits simp add: take_suc_rev')
   done
 
@@ -185,11 +180,10 @@ ucincl_proof reverse_unlink'_contract
 
 lemma reverse_unlink'_spec:
   shows \<open>\<Gamma>; reverse_unlink' n ll \<Turnstile>\<^sub>F reverse_unlink'_contract n ll ts rem\<close>
-  by (crush_boot f:reverse_unlink'_def contract: reverse_unlink'_contract_def) crush_base
-
-end
-
+by (crush_boot f:reverse_unlink'_def contract: reverse_unlink'_contract_def) crush_base
 
 (*<*)
+end
+
 end
 (*>*)

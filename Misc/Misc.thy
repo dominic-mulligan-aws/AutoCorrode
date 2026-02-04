@@ -14,6 +14,7 @@ theory Misc
     SetAdditional
     Undefined
     Vector
+    WordAdditional
     Word_Cast_Simplifier
 begin
 end
