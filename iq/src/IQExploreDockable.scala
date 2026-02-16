@@ -30,8 +30,8 @@ extends JPanel(new BorderLayout) with DefaultFocusComponent {
   private def appendOutput(text: String): Unit = {
     // Convert plain text to XML for the output area
     val xml_elem = XML.Elem(Markup("writeln", Nil), List(XML.Text(text)))
-    // Add to accumulated messages
-    accumulatedMessages = accumulatedMessages :+ xml_elem
+    // Add to accumulated messages with size limit to prevent memory leaks
+    accumulatedMessages = (accumulatedMessages :+ xml_elem).takeRight(1000) // Limit to 1000 messages
     // Update display with all accumulated messages
     output.pretty_text_area.update(Document.Snapshot.init, Command.Results.empty, accumulatedMessages)
   }
@@ -89,8 +89,8 @@ extends JPanel(new BorderLayout) with DefaultFocusComponent {
         // Debug: log new elements
         Output.writeln(s"I/Q Explore: Processing ${newElements.size} new elements (total: $lastProcessedOutputSize)")
 
-        // Append only the new results to accumulated messages
-        accumulatedMessages = accumulatedMessages ++ newElements
+        // Append only the new results to accumulated messages with size limit
+        accumulatedMessages = (accumulatedMessages ++ newElements).takeRight(1000) // Limit to 1000 messages
         // Update display with all accumulated messages (initial messages + all results so far)
         output.pretty_text_area.update(Document.Snapshot.init, Command.Results.empty, accumulatedMessages)
       }

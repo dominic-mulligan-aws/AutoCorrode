@@ -1,0 +1,6 @@
+session Isabelle_Copilot = HOL +
+  description "Support theories for Isabelle Copilot plugin"
+  sessions
+    "HOL-Eisbach"
+  theories
+    Copilot_Support

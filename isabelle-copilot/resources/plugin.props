@@ -1,0 +1,37 @@
+# Isabelle Copilot Plugin Properties
+
+plugin.isabelle.copilot.CopilotPlugin.name=Isabelle Copilot
+plugin.isabelle.copilot.CopilotPlugin.author=AWS
+plugin.isabelle.copilot.CopilotPlugin.version=0.1
+plugin.isabelle.copilot.CopilotPlugin.description=LLM-powered assistant for Isabelle/jEdit
+
+plugin.isabelle.copilot.CopilotPlugin.activate=startup
+plugin.isabelle.copilot.CopilotPlugin.usePluginHome=false
+
+plugin.isabelle.copilot.CopilotPlugin.depend.0=jdk 21
+plugin.isabelle.copilot.CopilotPlugin.depend.1=jedit 05.06.00.00
+
+# Options panel
+plugin.isabelle.copilot.CopilotPlugin.option-group=copilot-options
+options.copilot-options.label=Isabelle Copilot
+options.copilot-options.code=new isabelle.copilot.CopilotOptions();
+
+# Menu actions
+plugin.isabelle.copilot.CopilotPlugin.menu.label=Isabelle Copilot
+plugin.isabelle.copilot.CopilotPlugin.menu=copilot-dockable copilot-suggest copilot-explain copilot-sledgehammer
+
+# Action labels
+copilot-suggest.label=Copilot: Suggest Proof Step
+copilot-explain.label=Copilot: Explain Code
+copilot-sledgehammer.label=Copilot: Run Sledgehammer
+copilot-focus-chat.label=Copilot: Focus Chat Input
+
+# Keyboard shortcuts (CS = Ctrl+Shift on Linux/Windows, Cmd+Shift on macOS)
+copilot-suggest.shortcut=CS+P
+copilot-explain.shortcut=CS+E
+copilot-sledgehammer.shortcut=CS+H
+copilot-focus-chat.shortcut=CS+C
+
+# Dockable definitions
+copilot-dockable.label=Copilot
+copilot-dockable.title=Isabelle Copilot

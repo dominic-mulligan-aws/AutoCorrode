@@ -1,0 +1,6 @@
+# Build artifacts
+build/
+
+# Downloaded dependencies (run ./fetch-deps.sh to download)
+lib/*.jar
+lib/test/*.jar
