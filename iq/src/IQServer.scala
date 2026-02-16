@@ -403,7 +403,7 @@ class IQServer(port: Int = 8765) {
 
           result match {
             case Right(data) => Some(formatSuccessResponse(requestId, data))
-            case Left(error) => Some(formatErrorResponse(Some(requestId), -32601, error))
+            case Left(error) => Some(formatErrorResponse(Some(requestId), ErrorCodes.METHOD_NOT_FOUND, error))
           }
         /* From https://www.jsonrpc.org/specification:
          *  "A Notification is a Request object without an "id" member.
@@ -428,7 +428,7 @@ class IQServer(port: Int = 8765) {
       case ex: Exception =>
         Output.writeln(s"I/Q Server: Error processing request: ${ex.getMessage}")
         ex.printStackTrace()
-        Some(formatErrorResponse(None, -32603, s"Internal error: ${ex.getMessage}"))
+        Some(formatErrorResponse(None, ErrorCodes.INTERNAL_ERROR, s"Internal error: ${ex.getMessage}"))
     }
   }
 

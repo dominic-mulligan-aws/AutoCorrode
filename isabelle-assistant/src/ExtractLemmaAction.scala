@@ -1,0 +1,168 @@
+/* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+   SPDX-License-Identifier: MIT */
+
+package isabelle.assistant
+
+import isabelle._
+import isabelle.jedit._
+import org.gjt.sp.jedit.View
+import org.gjt.sp.jedit.buffer.JEditBuffer
+
+/**
+ * Extracts selected proof steps into a separate reusable lemma.
+ * Uses LLM to generate the extracted lemma and updated proof, then
+ * optionally verifies both via I/Q with retry on failure.
+ */
+object ExtractLemmaAction {
+
+  case class ExtractionResult(extractedLemma: String, updatedProof: String, lemmaName: String)
+
+  private case class ExtractionContext(
+    selectedText: String,
+    fullProofBlock: String,
+    lemmaStatement: String,
+    goalStateAtSelection: Option[String]
+  )
+
+  /** Chat command handler: extract selected text as lemma. */
+  def chatExtract(view: View): Unit = {
+    val selectedText = view.getTextArea.getSelectedText
+    if (selectedText != null && selectedText.trim.nonEmpty) extract(view, selectedText)
+    else ChatAction.addResponse("Please select text to extract as a lemma.")
+  }
+
+  def extract(view: View, selectedText: String): Unit = {
+    val buffer = view.getBuffer
+    val textArea = view.getTextArea
+    val selStart = if (textArea.getSelectionCount > 0) textArea.getSelection(0).getStart else textArea.getCaretPosition
+
+    val context = getExtractionContext(buffer, selStart, selectedText)
+    if (context.isEmpty) {
+      GUI.warning_dialog(view, "Isabelle Assistant", "Could not determine proof context")
+    } else {
+      val ctx = context.get
+      val commandOpt = IQIntegration.getCommandAtOffset(buffer, selStart)
+      val canVerify = IQAvailable.isAvailable && commandOpt.isDefined
+
+      AssistantDockable.setStatus("Extracting lemma...")
+      AssistantDockable.setBadge(VerificationBadge.Verifying)
+
+      Isabelle_Thread.fork(name = "assistant-extract") {
+        try {
+          val prompt = PromptLoader.load("extract_lemma.md", Map(
+            "selected_text" -> ctx.selectedText,
+            "full_proof" -> ctx.fullProofBlock,
+            "lemma_statement" -> ctx.lemmaStatement,
+            "goal_state" -> ctx.goalStateAtSelection.getOrElse("")
+          ))
+
+          val response = BedrockClient.invokeInContext(prompt)
+          parseExtractionResponse(response) match {
+            case Some(result) if canVerify =>
+              GUI_Thread.later { startVerification(view, commandOpt.get, ctx, result, 1) }
+            case Some(result) =>
+              showResult(view, result, VerificationBadge.Unverified)
+            case None =>
+              GUI_Thread.later {
+                ChatAction.addMessage("assistant", response); AssistantDockable.showConversation(ChatAction.getHistory)
+                AssistantDockable.setStatus("Could not parse extraction result")
+              }
+          }
+        } catch {
+          case ex: Exception =>
+            GUI_Thread.later {
+              AssistantDockable.setStatus("Error: " + ex.getMessage)
+              GUI.error_dialog(view, "Extract Lemma Error", ex.getMessage)
+            }
+        }
+      }
+    }
+  }
+
+  private def getExtractionContext(buffer: JEditBuffer, selStart: Int, selectedText: String): Option[ExtractionContext] = {
+    ProofExtractor.getProofBlockAtOffset(buffer, selStart).map { fullProof =>
+      val lemmaStatement = fullProof.linesIterator.find { line =>
+        val t = line.trim
+        Set("lemma", "theorem", "corollary", "proposition").exists(kw => t.startsWith(kw + " "))
+      }.getOrElse("")
+
+      ExtractionContext(selectedText, fullProof, lemmaStatement, GoalExtractor.getGoalState(buffer, selStart))
+    }
+  }
+
+  private def parseExtractionResponse(response: String): Option[ExtractionResult] = {
+    // Flexible parsing: allow optional whitespace, different heading levels, and variations
+    val extractedPattern = """(?i)#+ *EXTRACTED[_ ]LEMMA\s*```(?:isabelle)?\s*\n([\s\S]*?)```""".r
+    val updatedPattern = """(?i)#+ *UPDATED[_ ]PROOF\s*```(?:isabelle)?\s*\n([\s\S]*?)```""".r
+
+    for {
+      em <- extractedPattern.findFirstMatchIn(response)
+      um <- updatedPattern.findFirstMatchIn(response)
+    } yield {
+      val extracted = em.group(1).trim
+      val name = """(?:lemma|theorem)\s+(\w+)""".r.findFirstMatchIn(extracted).map(_.group(1)).getOrElse("extracted")
+      ExtractionResult(extracted, um.group(1).trim, name)
+    }
+  }
+
+  private def startVerification(view: View, command: Command, ctx: ExtractionContext, result: ExtractionResult, attempt: Int): Unit = {
+    val maxRetries = AssistantOptions.getMaxVerificationRetries
+    val timeout = AssistantOptions.getVerificationTimeout
+
+    AssistantDockable.setStatus(s"Verifying extracted lemma (attempt $attempt/$maxRetries)...")
+
+    IQIntegration.verifyProofAsync(view, command, result.extractedLemma, timeout, {
+      case IQIntegration.ProofSuccess(_, _) =>
+        AssistantDockable.setStatus("Verifying updated proof...")
+        IQIntegration.verifyProofAsync(view, command, result.updatedProof, timeout, {
+          case IQIntegration.ProofSuccess(timeMs, _) =>
+            showResult(view, result, VerificationBadge.Verified(Some(timeMs)))
+          case IQIntegration.ProofFailure(error) if attempt < maxRetries =>
+            retryInBackground(view, command, ctx, result, s"Updated proof failed: $error", attempt, maxRetries)
+          case IQIntegration.ProofFailure(error) =>
+            showResult(view, result, VerificationBadge.Failed(s"Updated proof failed: ${error.take(50)}"))
+          case _ =>
+            showResult(view, result, VerificationBadge.Unverified)
+        })
+
+      case IQIntegration.ProofFailure(error) if attempt < maxRetries =>
+        retryInBackground(view, command, ctx, result, s"Extracted lemma failed: $error", attempt, maxRetries)
+      case IQIntegration.ProofFailure(error) =>
+        showResult(view, result, VerificationBadge.Failed(s"Lemma failed: ${error.take(50)}"))
+      case _ =>
+        showResult(view, result, VerificationBadge.Unverified)
+    })
+  }
+
+  private def retryInBackground(view: View, command: Command, ctx: ExtractionContext, failedResult: ExtractionResult, error: String, attempt: Int, maxRetries: Int): Unit = {
+    AssistantDockable.setStatus(s"Retrying (${attempt + 1}/$maxRetries)...")
+
+    Isabelle_Thread.fork(name = "assistant-extract-retry") {
+      try {
+        val retryPrompt = PromptLoader.load("extract_lemma_retry.md", Map(
+          "selected_text" -> ctx.selectedText,
+          "failed_lemma" -> failedResult.extractedLemma,
+          "failed_proof" -> failedResult.updatedProof,
+          "error" -> error
+        ))
+        val response = BedrockClient.invokeNoCache(retryPrompt)
+        parseExtractionResponse(response) match {
+          case Some(result) =>
+            GUI_Thread.later { startVerification(view, command, ctx, result, attempt + 1) }
+          case None =>
+            GUI_Thread.later { showResult(view, failedResult, VerificationBadge.Failed("Retry parse failed")) }
+        }
+      } catch {
+        case ex: Exception =>
+          GUI_Thread.later { showResult(view, failedResult, VerificationBadge.Failed("Retry error: " + ex.getMessage)) }
+      }
+    }
+  }
+
+  private def showResult(view: View, result: ExtractionResult, badge: VerificationBadge.BadgeType): Unit = {
+    val code = s"${result.extractedLemma}\n\n${result.updatedProof}"
+    AssistantDockable.respondInChat(s"Extracted lemma '${result.lemmaName}':", Some((code, () => {
+      view.getBuffer.insert(view.getTextArea.getCaretPosition, code)
+    })))
+  }
+}

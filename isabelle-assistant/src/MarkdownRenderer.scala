@@ -1,0 +1,243 @@
+/* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+   SPDX-License-Identifier: MIT */
+
+package isabelle.assistant
+
+import java.awt.{Color, Insets}
+import java.awt.image.BufferedImage
+
+/**
+ * Markdown-to-HTML renderer for the chat panel.
+ * Handles headings, bold, italic, inline code, code fences (with clickable
+ * isabelle blocks), bullet/numbered lists, markdown tables, and LaTeX math
+ * (via JLaTeXMath → BufferedImage → base64 img tag).
+ */
+object MarkdownRenderer {
+  /** Code font family string for HTML. Uses jEdit's configured font if available. */
+  def codeFont: String = {
+    try {
+      val f = org.gjt.sp.jedit.jEdit.getFontProperty("view.font")
+      if (f != null) s"'${f.getFamily}', monospace" else "'Source Code Pro', 'Menlo', 'Consolas', monospace"
+    } catch {
+      case _: Exception => "'Source Code Pro', 'Menlo', 'Consolas', monospace"
+    }
+  }
+
+  def toHtml(markdown: String): String =
+    s"<html><body style='font-family:sans-serif;font-size:12pt;padding:8px;'>${toBodyHtml(markdown)}</body></html>"
+
+  /** Render markdown to HTML body fragment (no clickable isabelle blocks). */
+  def toBodyHtml(markdown: String): String = renderBody(markdown, None)
+
+  /** Render markdown with clickable isabelle code blocks.
+    * @param registerAction callback: takes code string, returns action ID */
+  def toBodyHtmlWithActions(markdown: String, registerAction: String => String): String =
+    renderBody(markdown, Some(registerAction))
+
+  private def renderBody(markdown: String, registerAction: Option[String => String]): String = {
+    val lines = markdown.split("\n", -1)
+    val sb = new StringBuilder
+    var i = 0
+    while (i < lines.length) {
+      val line = lines(i)
+      if (line.trim.startsWith("```")) {
+        i = renderCodeBlock(lines, i, sb, registerAction)
+      } else if (line.trim.startsWith("|") && i + 1 < lines.length && lines(i + 1).trim.matches("""\|[\s:|-]+\|""")) {
+        i = renderTable(lines, i, sb)
+      } else if (line.trim.startsWith("$$")) {
+        i = renderDisplayMath(lines, i, sb)
+      } else {
+        sb.append(processLine(line))
+        i += 1
+      }
+    }
+    sb.toString
+  }
+
+  private def renderCodeBlock(lines: Array[String], start: Int, sb: StringBuilder, registerAction: Option[String => String]): Int = {
+    val tag = lines(start).trim.stripPrefix("```").trim
+    val code = new StringBuilder
+    var i = start + 1
+    while (i < lines.length && !lines(i).trim.startsWith("```")) {
+      if (code.nonEmpty) code.append("\n")
+      code.append(lines(i))
+      i += 1
+    }
+    // i now points at closing ``` or past end
+    val codeStr = code.toString
+    val escaped = escapeHtml(codeStr)
+
+    if (tag.startsWith("action:")) {
+      val id = tag.stripPrefix("action:")
+      appendClickableBlock(sb, escaped, id)
+    } else if (tag == "isabelle" && registerAction.isDefined) {
+      val id = registerAction.get(codeStr)
+      appendClickableBlock(sb, escaped, id)
+    } else {
+      sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:#f8f8f8;")
+      sb.append("padding:8px 10px;margin:4px 0;border:1px solid #e0e0e0;border-radius:3px;")
+      sb.append("white-space:pre;overflow-x:auto;line-height:1.4;'>")
+      sb.append(escaped)
+      sb.append("</pre>")
+    }
+    i + 1 // skip closing ```
+  }
+
+  private def appendClickableBlock(sb: StringBuilder, escapedCode: String, id: String): Unit = {
+    val rawCode = escapedCode.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    val encodedForUrl = java.net.URLEncoder.encode(rawCode, "UTF-8")
+    // Unified code block with integrated action bar
+    sb.append(s"<div style='margin:4px 0 6px;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden;'>")
+    // Code area — clicking inserts
+    sb.append(s"<a href='action:insert:$id' style='text-decoration:none;display:block;'>")
+    sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:#f8f8f8;")
+    sb.append("padding:8px 10px;margin:0;border:none;white-space:pre;overflow-x:auto;cursor:pointer;line-height:1.4;'>")
+    sb.append(escapedCode)
+    sb.append("</pre></a>")
+    // Action bar — flush with code, no extra border
+    sb.append("<div style='padding:4px 10px;background:#f0f0f0;border-top:1px solid #e0e0e0;font-size:10pt;'>")
+    sb.append(s"<a href='action:insert:$id' style='color:#7b1fa2;text-decoration:none;padding:2px 8px;background:#e8e0f0;border-radius:8px;'>[Insert]</a>")
+    sb.append(s"  <a href='action:copy:$encodedForUrl' style='color:#7b1fa2;text-decoration:none;padding:2px 8px;background:#e8e0f0;border-radius:8px;'>[Copy]</a>")
+    sb.append("</div></div>")
+  }
+
+  /** Render a markdown table starting at line index `start`. Returns next line index. */
+  private def renderTable(lines: Array[String], start: Int, sb: StringBuilder): Int = {
+    val headerCells = parseTableRow(lines(start))
+    // Skip separator row (line start+1)
+    var i = start + 2
+    sb.append("<table style='border-collapse:collapse;margin:4px 0;table-layout:fixed;width:100%;word-wrap:break-word;'>")
+    sb.append("<tr>")
+    for (cell <- headerCells)
+      sb.append(s"<th style='border:1px solid #d0d0d0;padding:4px 8px;background:#f0f0f0;font-size:11pt;text-align:left;'>${processInline(cell)}</th>")
+    sb.append("</tr>")
+    while (i < lines.length && lines(i).trim.startsWith("|")) {
+      val cells = parseTableRow(lines(i))
+      sb.append("<tr>")
+      for (cell <- cells)
+        sb.append(s"<td style='border:1px solid #d0d0d0;padding:4px 8px;font-size:11pt;'>${processInline(cell)}</td>")
+      sb.append("</tr>")
+      i += 1
+    }
+    sb.append("</table>")
+    i
+  }
+
+  private def parseTableRow(line: String): List[String] = {
+    val trimmed = line.trim.stripPrefix("|").stripSuffix("|")
+    trimmed.split("\\|").map(_.trim).toList
+  }
+
+  /** Render $$...$$ display math block. Returns next line index. */
+  private def renderDisplayMath(lines: Array[String], start: Int, sb: StringBuilder): Int = {
+    val first = lines(start).trim.stripPrefix("$$").trim
+    if (first.endsWith("$$") && first.length > 2) {
+      // Single-line: $$formula$$
+      val formula = first.stripSuffix("$$").trim
+      sb.append(s"<div style='text-align:center;margin:6px 0;'>${renderLatex(formula, 18f)}</div>")
+      start + 1
+    } else {
+      // Multi-line: collect until $$
+      val formulaParts = new StringBuilder
+      if (first.nonEmpty) formulaParts.append(first)
+      var i = start + 1
+      while (i < lines.length && !lines(i).trim.startsWith("$$")) {
+        if (formulaParts.nonEmpty) formulaParts.append(" ")
+        formulaParts.append(lines(i).trim)
+        i += 1
+      }
+      sb.append(s"<div style='text-align:center;margin:6px 0;'>${renderLatex(formulaParts.toString, 18f)}</div>")
+      i + 1 // skip closing $$
+    }
+  }
+
+  private def processLine(line: String): String = {
+    if (line.startsWith("### ")) s"<h3 style='margin:6px 0 2px;font-size:13pt;'>${processInline(line.drop(4))}</h3>"
+    else if (line.startsWith("## ")) s"<h2 style='margin:8px 0 2px;font-size:14pt;'>${processInline(line.drop(3))}</h2>"
+    else if (line.startsWith("# ")) s"<h1 style='margin:8px 0 4px;font-size:15pt;'>${processInline(line.drop(2))}</h1>"
+    else if (line.startsWith("- ")) s"<div style='margin:1px 0;padding-left:12px;'>• ${processInline(line.drop(2))}</div>"
+    else if (line.matches("""^\d+\.\s.*""")) {
+      val content = line.replaceFirst("""^\d+\.\s""", "")
+      s"<div style='margin:1px 0;padding-left:12px;'>${line.takeWhile(_ != ' ')} ${processInline(content)}</div>"
+    }
+    else if (line.trim.isEmpty) "<div style='height:6px;'></div>"
+    else s"<div style='margin:1px 0;line-height:1.4;'>${processInline(line)}</div>"
+  }
+
+  /** Process inline formatting: bold, italic, inline code, inline LaTeX math.
+    * NOTE: This uses multiple sequential regex passes. A single-pass state machine
+    * would be faster for very large responses, but the current approach is simpler
+    * and adequate for typical LLM response sizes (<10K chars). */
+  private def processInline(text: String): String = {
+    var result = text
+    // Inline code first — protect contents from other processing
+    result = result.replaceAll("""`([^`]+)`""", "\u0001C$1\u0001c")
+    // Inline LaTeX: $...$ (not $$) — render and protect from HTML escaping
+    val latexRendered = new java.util.concurrent.atomic.AtomicInteger(0)
+    val latexMap = scala.collection.mutable.Map[String, String]()
+    result = inlineLatexPattern.replaceAllIn(result, m => {
+      val formula = m.group(1)
+      val key = s"\u0002L${latexRendered.getAndIncrement()}\u0002"
+      latexMap(key) = renderLatex(formula, 13f)
+      java.util.regex.Matcher.quoteReplacement(key)
+    })
+    // Bold
+    result = result.replaceAll("""\*\*([\s\S]+?)\*\*""", "\u0001B$1\u0001b")
+    // Italic
+    result = result.replaceAll("""\*([^*]+)\*""", "\u0001I$1\u0001i")
+    result = escapeHtml(result)
+    result = result.replace("\u0001B", "<b>").replace("\u0001b", "</b>")
+    result = result.replace("\u0001I", "<i>").replace("\u0001i", "</i>")
+    result = result.replace("\u0001C",
+      s"<code style='background:#f0f0f0;padding:1px 4px;font-family:$codeFont;font-size:11pt;border-radius:2px;'>")
+      .replace("\u0001c", "</code>")
+    // Restore LaTeX images (already HTML, must not be escaped)
+    for ((key, html) <- latexMap) result = result.replace(key, html)
+    result
+  }
+
+  // Match $...$ but not $$ (display math) and not escaped \$
+  private val inlineLatexPattern = """(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)""".r
+
+  /** LRU cache of rendered LaTeX images, keyed by synthetic URL for JEditorPane. */
+  private val maxImageCacheSize = 200
+  private val imageCache = new java.util.LinkedHashMap[String, java.awt.Image](maxImageCacheSize + 1, 0.75f, true) {
+    override def removeEldestEntry(eldest: java.util.Map.Entry[String, java.awt.Image]): Boolean =
+      size() > maxImageCacheSize
+  }
+  private val imageCounter = new java.util.concurrent.atomic.AtomicInteger(0)
+
+  /** Get a cached image by its synthetic URL. Called by the HTMLDocument's image loading. */
+  def getCachedImage(url: String): Option[java.awt.Image] = synchronized { Option(imageCache.get(url)) }
+
+  /** Render a LaTeX formula to an img tag with a synthetic URL.
+    * The image is stored in imageCache and loaded by LatexImageView. */
+  private def renderLatex(formula: String, size: Float): String = {
+    try {
+      val icon = new org.scilab.forge.jlatexmath.TeXFormula(formula)
+        .createTeXIcon(org.scilab.forge.jlatexmath.TeXConstants.STYLE_DISPLAY, size)
+      icon.setInsets(new Insets(2, 2, 2, 2))
+      val w = icon.getIconWidth
+      val h = icon.getIconHeight
+      if (w <= 0 || h <= 0) {
+        escapeHtml("$" + formula + "$")
+      } else {
+        val img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+        val g2 = img.createGraphics()
+        g2.setColor(Color.WHITE)
+        g2.fillRect(0, 0, w, h)
+        icon.paintIcon(null, g2, 0, 0)
+        g2.dispose()
+        val id = s"latex://${imageCounter.getAndIncrement()}"
+        synchronized { imageCache.put(id, img) }
+        s"<img src='$id' width='$w' height='$h' style='vertical-align:middle;' />"
+      }
+    } catch {
+      case _: Exception =>
+        s"<i style='color:#666;'>${escapeHtml(formula)}</i>"
+    }
+  }
+
+  private def escapeHtml(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+}

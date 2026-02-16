@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!DOCTYPE DOCKABLES SYSTEM "dockables.dtd">
+
+<DOCKABLES>
+	<DOCKABLE NAME="assistant-dockable" MOVABLE="TRUE">
+		new isabelle.assistant.AssistantDockable(view, position);
+	</DOCKABLE>
+</DOCKABLES>

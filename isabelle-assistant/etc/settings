@@ -1,0 +1,2 @@
+# Isabelle Assistant component settings
+ISABELLE_ASSISTANT_HOME="$COMPONENT"

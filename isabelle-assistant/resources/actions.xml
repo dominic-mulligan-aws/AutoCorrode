@@ -1,0 +1,33 @@
+<!DOCTYPE ACTIONS SYSTEM "actions.dtd">
+<ACTIONS>
+	<ACTION NAME="assistant-suggest">
+		<CODE>
+			isabelle.assistant.SuggestAction.suggest(view, view.getBuffer(), view.getTextArea().getCaretPosition());
+		</CODE>
+	</ACTION>
+	<ACTION NAME="assistant-explain">
+		<CODE>
+			String sel = view.getTextArea().getSelectedText();
+			String text = (sel != null &amp;&amp; sel.trim().length() > 0) ? sel :
+				isabelle.assistant.CommandExtractor.getCommandAtOffset(view.getBuffer(), view.getTextArea().getCaretPosition()).getOrElse("");
+			if (text.length() > 0) isabelle.assistant.ExplainAction.explain(view, text);
+		</CODE>
+	</ACTION>
+	<ACTION NAME="assistant-sledgehammer">
+		<CODE>
+			isabelle.assistant.SledgehammerAction.run(view);
+		</CODE>
+	</ACTION>
+	<ACTION NAME="assistant-focus-chat">
+		<CODE>
+			org.gjt.sp.jedit.gui.DockableWindowManager dwm = view.getDockableWindowManager();
+			if (dwm != null) {
+				dwm.showDockableWindow("assistant-dockable");
+				Object dockable = dwm.getDockable("assistant-dockable");
+				if (dockable != null &amp;&amp; dockable instanceof isabelle.assistant.AssistantDockable) {
+					((isabelle.assistant.AssistantDockable) dockable).focusOnDefaultComponent();
+				}
+			}
+		</CODE>
+	</ACTION>
+</ACTIONS>

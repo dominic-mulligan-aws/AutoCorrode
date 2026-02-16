@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<!DOCTYPE SERVICES SYSTEM "services.dtd">
+<SERVICES>
+  <SERVICE CLASS="org.gjt.sp.jedit.gui.DynamicContextMenuService" NAME="assistant">
+    new isabelle.assistant.AssistantContextMenu();
+  </SERVICE>
+</SERVICES>
