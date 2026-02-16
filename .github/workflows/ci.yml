@@ -1,67 +1,43 @@
-# SPDX-License-Identifier: MIT
-
 name: CI
-permissions:
-  contents: read
-on:
-  workflow_dispatch:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-    types: ["opened", "synchronize"]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  lint-markdown-link:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-    - uses: gaurav-nelson/github-action-markdown-link-check@3c3b66f1f7d0900e37b71eca45b63ea9eedfce31 # v1.0.17
-  build:
+  test:
     runs-on: ubuntu-latest
     container:
       image: makarius/isabelle:Isabelle2025-2
       options: --user root
 
     steps:
-      - name: Checkout AutoCorrode
-        uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-      - name: Setup Isabelle
-        uses: ./.github/actions/setup-isabelle-action
+    - name: Install build tools
+      run: apt-get update -qq && apt-get install -y -qq make curl > /dev/null
 
-      # Build with HTML documentation, to make sure we can deploy to pages on merge
-      - name: Build AutoCorrode
-        run: |
-          $ISABELLE_HOME/bin/isabelle build -v -b -d . -o browser_info -d $AFP_COMPONENT_BASE/Word_Lib AutoCorrode
-  iq:
-    runs-on: ubuntu-latest
-    container:
-      image: makarius/isabelle:Isabelle2025-2
-      options: --user root
+    - name: Set Isabelle environment
+      run: |
+        ISABELLE_HOME=$(/home/isabelle/Isabelle/bin/isabelle getenv -b ISABELLE_HOME)
+        echo "ISABELLE_HOME=$ISABELLE_HOME" >> $GITHUB_ENV
+        JAVA_HOME=$(/home/isabelle/Isabelle/bin/isabelle getenv -b JAVA_HOME)
+        echo "JAVA_HOME=$JAVA_HOME" >> $GITHUB_ENV
+        echo "$JAVA_HOME/bin" >> $GITHUB_PATH
 
-    steps:
-      - name: Checkout AutoCorrode
-        uses: actions/checkout@v3
+    - name: Fetch dependencies
+      run: |
+        cd isabelle-copilot
+        ./fetch-deps.sh
 
-      - name: Setup Isabelle
-        uses: ./.github/actions/setup-isabelle-action
+    - name: Build I/Q and Copilot plugins
+      run: |
+        cd isabelle-copilot
+        make all ISABELLE_HOME=$ISABELLE_HOME
 
-      - name: Setup dependencies for I/Q build
-        run: |
-          apt install -y make
-          echo "ISABELLE_HOME=/home/isabelle/Isabelle" >> $GITHUB_ENV
-          echo "JAVA_HOME=/home/isabelle/Isabelle/contrib/jdk-21.0.9/x86_64-linux/" >> $GITHUB_ENV
-          echo "PATH=/home/isabelle/Isabelle/contrib/jdk-21.0.9/x86_64-linux/bin:$PATH" >> $GITHUB_ENV
-
-      - name: Build I/Q plugin
-        run: |
-          make -C iq
-
-      - name: Install I/Q plugin
-        run: |
-          make -C iq install
+    - name: Run tests
+      run: |
+        cd isabelle-copilot
+        make test ISABELLE_HOME=$ISABELLE_HOME

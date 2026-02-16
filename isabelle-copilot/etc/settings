@@ -1,0 +1,2 @@
+# Isabelle Copilot component settings
+ISABELLE_COPILOT_HOME="$COMPONENT"

@@ -1,0 +1,264 @@
+# Isabelle Copilot
+
+LLM-powered proof assistant for [Isabelle/jEdit](https://isabelle.in.tum.de/), built on [AWS Bedrock](https://aws.amazon.com/bedrock/). Provides autonomous proof search, interactive chat with LaTeX rendering, proof suggestions, code generation, refactoring, and more — all integrated into the Isabelle/jEdit IDE via a dockable chat panel and context-sensitive right-click menu.
+
+Isabelle Copilot is part of the [AutoCorrode](https://github.com/awslabs/AutoCorrode) project.
+
+## Highlights
+
+### Freeform Chat
+
+Ask natural language questions about Isabelle/HOL directly in the IDE. The chat panel supports Markdown formatting, syntax-highlighted Isabelle code blocks with one-click insertion, and rendered LaTeX mathematics.
+
+![Freeform chat with the Copilot](gifs/copilot-freeform-chat.gif)
+
+With Anthropic Claude models, the LLM has autonomous access to tools for reading theory files, checking proof state, searching for theorems, and verifying proofs — enabling it to ground its responses in the actual content of your development.
+
+### LaTeX Rendering
+
+Mathematical notation in chat responses is rendered as LaTeX via [JLaTeXMath](https://github.com/opencollab/jlatexmath), both inline (`$...$`) and display (`$$...$$`).
+
+![LaTeX rendering in chat](gifs/copilot-chat-latex-rendering.gif)
+
+### Auto-Prove
+
+The `:prove` command launches an autonomous proof search that combines LLM reasoning with Isabelle verification:
+
+1. **Phase 0** — tries common one-liner methods (`by simp`, `by auto`, `by blast`, induction candidates, etc.)
+2. **Phase 1** — generates multiple proof skeletons in parallel (tree-of-thought), each a structurally valid proof with `sorry` placeholders
+3. **Phase 2** — iteratively fills each `sorry` by querying I/Q for the actual subgoal, trying simple methods first, then calling the LLM with full context
+
+Every intermediate state is a valid proof — no unverified claims are made. The prover respects configurable limits on steps, retries, branches, and timeouts.
+
+![Autonomous proof search](gifs/copilot-autoprove.gif)
+
+### Explain
+
+Explain any Isabelle command, definition, or error at the cursor or in a selection. The LLM receives the surrounding theory context for targeted explanations.
+
+![Explaining Isabelle code](gifs/copilot-explain.gif)
+
+### Refactor to Isar
+
+Convert apply-style proof scripts to structured Isar proofs. The generated Isar proof is automatically verified against Isabelle (when I/Q is available) and retried with error feedback if verification fails.
+
+![Refactoring to Isar](gifs/copilot-refactor-to-isar.gif)
+
+### Generate Documentation
+
+Generate documentation comments for definitions, theorems, and other Isabelle commands. The LLM inspects the command type and surrounding context to produce appropriate documentation.
+
+![Generating documentation](gifs/copilot-doc-comment.gif)
+
+### Generate Introduction Rules
+
+Generate introduction and elimination rules for inductive definitions and datatypes.
+
+![Generating introduction rules](gifs/copilot-generate-intro-rule.gif)
+
+### Generate Test Cases
+
+Generate QuickCheck-style test cases and examples for definitions.
+
+![Generating test cases](gifs/copilot-testcase-generation.gif)
+
+### Configuration
+
+All settings are accessible via **Plugins → Plugin Options → Isabelle Copilot** or the `:set` chat command. Configure AWS region, model selection, temperature, verification timeouts, proof search parameters, and more.
+
+![Settings panel](gifs/copilot-settings.gif)
+
+## Prerequisites
+
+- [Isabelle2025-2](https://isabelle.in.tum.de/website-Isabelle2025-2/)
+- AWS account with [Bedrock model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html) (Claude recommended)
+- AWS credentials configured (`~/.aws/credentials` or environment variables)
+
+## Setup
+
+1. Download dependencies:
+   ```bash
+   ./fetch-deps.sh
+   ```
+
+2. Build and install (includes the [I/Q](../iq) plugin for proof verification):
+   ```bash
+   make install
+   ```
+
+3. Restart Isabelle/jEdit. The Copilot panel appears as a dockable.
+
+4. Configure your model via **Plugins → Plugin Options → Isabelle Copilot**, or `:set model <model-id>` in the chat.
+
+For full feature support, import the Copilot support theory in your development:
+```isabelle
+imports "Isabelle_Copilot.Copilot_Support"
+```
+
+This provides Eisbach (for tactic generation) and Isar_Explore (for I/Q integration). The status bar shows the current support level:
+- **Copilot ✓** — `Copilot_Support` imported, all features available
+- **Copilot: Partial** — I/Q or Eisbach available but not both
+- **Copilot (LLM only)** — no I/Q or Eisbach; chat and LLM features still work
+
+## Features
+
+### Context Menu
+
+Right-click in any `.thy` file to access the **Isabelle Copilot** submenu. Available actions adapt to context — proof state, text selection, cursor position, error presence, and I/Q availability.
+
+### Feature Overview
+
+| Category | Feature | Description | I/Q |
+|----------|---------|-------------|:---:|
+| **Understanding** | Explain | Explain code at cursor or selection | |
+| | Explain Error | Analyze error messages | |
+| | Show Type | Display type information at cursor | |
+| | Summarize Theory | Summarize theory content | |
+| | Explain Counterexample | Explain nitpick/quickcheck counterexamples | |
+| **Proof** | Suggest Proof Step | LLM proof suggestions with optional sledgehammer | for verification |
+| | Suggest Strategy | High-level proof strategy recommendations | |
+| | Auto-Prove (`:prove`) | Autonomous sketch-and-fill proof search | ✓ |
+| | Sledgehammer | Run external ATP provers | ✓ |
+| | Nitpick | Search for counterexamples | ✓ |
+| | Quickcheck | Test conjectures with random examples | ✓ |
+| | Try Methods | Try simp/auto/blast/force/fastforce | ✓ |
+| | Trace Simplifier | Trace simp/auto rewriting steps | ✓ |
+| | Print Context | Show proof context (assumptions, goals) | ✓ |
+| **Refactoring** | Refactor to Isar | Convert apply-style to structured Isar | for verification |
+| | Tidy | Clean up formatting and cartouches | for verification |
+| | Extract Lemma | Extract proof steps into a separate lemma | for verification |
+| **Generation** | Doc Comment | Generate documentation comments | |
+| | Intro/Elim Rules | Generate introduction and elimination rules | |
+| | Test Cases | Generate QuickCheck-style test cases | |
+| | Suggest Tactic | Generate Eisbach methods | |
+| **Analysis** | Analyze Patterns | Analyze proof patterns and suggest improvements | |
+| | Find Theorems | Search for matching theorems | ✓ |
+| **Navigation** | List Theories | List open theory files | |
+| | Read Theory | Display theory content | |
+| | Search in Theory | Search for patterns within a theory | |
+| | Theory Dependencies | Show theory import graph | |
+
+### Verification Badges
+
+When I/Q is available, generated proofs are automatically verified against Isabelle before display. Failed proofs are retried with error feedback. Results show verification badges:
+
+- **✓ Verified** — proof checked by Isabelle
+- **⚡ Sledgehammer** — found by external provers
+- **? Unverified** — not checked (I/Q unavailable)
+- **✗ Failed** — verification failed after retries
+
+### Tool Use (Anthropic Models)
+
+With Anthropic Claude models, the LLM can autonomously use tools during chat:
+
+| Tool | Description |
+|------|-------------|
+| `read_theory` | Read lines from an open theory file |
+| `list_theories` | List all open theory files |
+| `search_in_theory` | Search for patterns in a theory |
+| `get_goal_state` | Get the current proof goal |
+| `get_proof_context` | Get local facts and assumptions |
+| `find_theorems` | Search for library theorems (I/Q) |
+| `verify_proof` | Verify a proof method (I/Q) |
+| `run_sledgehammer` | Run automated proof search (I/Q) |
+
+## Chat Commands
+
+Type `:help` in the chat to see all commands. Commands are prefixed with `:`.
+
+| Command | Description |
+|---------|-------------|
+| `:help` | Show all commands |
+| `:explain [target]` | Explain code at location |
+| `:explain-error` | Explain error at cursor |
+| `:explain-counterexample` | Explain counterexample |
+| `:suggest [target]` | Suggest proof steps |
+| `:suggest-strategy` | Recommend proof strategy |
+| `:suggest-tactic` | Generate Eisbach method |
+| `:prove` | Autonomous proof search |
+| `:tidy` | Clean up formatting |
+| `:refactor` | Convert to Isar |
+| `:extract` | Extract lemma from selection |
+| `:find <pattern>` | Search for theorems |
+| `:sledgehammer` | Run sledgehammer |
+| `:nitpick` | Run nitpick |
+| `:quickcheck` | Run quickcheck |
+| `:try-methods` | Try common proof methods |
+| `:trace` | Trace simplifier |
+| `:print-context` | Show proof context |
+| `:show-type` | Show type at cursor |
+| `:summarize` | Summarize current theory |
+| `:analyze` | Analyze proof patterns |
+| `:generate-doc` | Generate documentation |
+| `:generate-intro` | Generate intro rule |
+| `:generate-elim` | Generate elim rule |
+| `:generate-tests` | Generate test cases |
+| `:verify <proof>` | Verify proof text |
+| `:theories` | List open theories |
+| `:read <theory>` | Show theory content |
+| `:deps <theory>` | Show theory dependencies |
+| `:search <theory> <pattern>` | Search in theory |
+| `:models` | Refresh available models |
+| `:set [key [value]]` | View/change settings |
+
+### Target Syntax
+
+Commands like `:explain` and `:suggest` accept optional targets:
+- `cursor` or `current` — current cursor position (default)
+- `selection` — current text selection
+- `Theory.thy:42` — specific line in a theory
+- `Theory.thy:10-20` — line range
+- `Theory.thy:lemma_name` — named element
+- `cursor+5`, `cursor-3` — relative offset
+
+## Configuration
+
+Access via **Plugins → Plugin Options → Isabelle Copilot** or `:set` in chat.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `region` | us-east-1 | AWS region |
+| `model` | (none) | Bedrock model ID |
+| `cris` | true | Cross-Region Inference (CRIS) |
+| `temperature` | 0.3 | Sampling temperature (0.0–1.0) |
+| `max_tokens` | 4000 | Max response tokens |
+| `max_tool_iterations` | 10 | Max tool-use iterations (Anthropic) |
+| `max_retries` | 3 | Verification retry attempts |
+| `verify_timeout` | 30000 | Verification timeout (ms) |
+| `verify_suggestions` | true | Verify proofs via I/Q |
+| `use_sledgehammer` | false | Run sledgehammer in parallel with suggestions |
+| `sledgehammer_timeout` | 15000 | Sledgehammer timeout (ms) |
+| `max_verify_candidates` | 5 | Max suggestions to verify |
+| `find_theorems_limit` | 20 | Max theorems for context |
+| `find_theorems_timeout` | 10000 | Find theorems timeout (ms) |
+| `trace_timeout` | 10 | Simplifier trace timeout (s) |
+| `trace_depth` | 3 | Simplifier trace depth |
+| `prove_max_steps` | 20 | Auto-prover max steps |
+| `prove_retries` | 2 | Retries per failed step |
+| `prove_step_timeout` | 30000 | Per-step verification timeout (ms) |
+| `prove_branches` | 3 | Parallel proof strategies (tree-of-thought) |
+
+### AWS Credentials
+
+Credentials are read from the standard AWS credential chain:
+- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+- Credentials file (`~/.aws/credentials`)
+- IAM instance profile (on EC2)
+
+### Cross-Region Inference (CRIS)
+
+Enabled by default. Automatically prefixes model IDs with `us.` or `eu.` for supported providers (Anthropic, Meta, Mistral).
+
+## Development
+
+```bash
+make help       # Show available targets
+make build      # Build the plugin
+make install    # Build and install (includes I/Q)
+make clean      # Remove build artifacts
+make debug      # Show build configuration
+```
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](../LICENSE) file.
