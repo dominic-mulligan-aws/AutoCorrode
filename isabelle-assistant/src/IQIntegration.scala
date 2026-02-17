@@ -93,6 +93,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
           val startTime = System.currentTimeMillis()
           val completionLock = new Object()
           @volatile var completed = false
+          @volatile var receivedOutput = false
           @volatile var timeoutThread: Thread = null
 
           def completeOperation(newResult: VerificationResult): Unit = {
@@ -110,13 +111,20 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
           val operation = new Extended_Query_Operation(
             PIDE.editor, view, AssistantConstants.IQ_OPERATION_ISAR_EXPLORE,
             status => {
-              if (status == Extended_Query_Operation.Status.finished ||
-                  status == Extended_Query_Operation.Status.failed) {
-                val elapsed = System.currentTimeMillis() - startTime
-                if (status == Extended_Query_Operation.Status.failed)
-                  completeOperation(ProofFailure("Verification unavailable (import iq.Isar_Explore to enable)"))
-                else
-                  completeOperation(ProofSuccess(elapsed))
+              if (status == Extended_Query_Operation.Status.failed) {
+                completeOperation(ProofFailure("Verification unavailable (import iq.Isar_Explore to enable)"))
+              } else if (status == Extended_Query_Operation.Status.finished) {
+                // Don't immediately report success — wait to see if we received valid output.
+                // If output callback already completed with ProofSuccess, do nothing.
+                // Otherwise, wait a brief grace period then report failure if still no output.
+                Isabelle_Thread.fork(name = "verify-grace-period") {
+                  Thread.sleep(500) // 500ms grace period for output callback to fire
+                  completionLock.synchronized {
+                    if (!completed && !receivedOutput) {
+                      completeOperation(ProofFailure("proof method did not produce a result (may not have terminated)"))
+                    }
+                  }
+                }
               }
             },
             (snapshot, cmdResults, output) => {
@@ -130,6 +138,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
                   } else {
                     val text = output.map(XML.content(_).trim).filter(_.nonEmpty).mkString("\n")
                     if (text.nonEmpty) {
+                      receivedOutput = true
                       completeOperation(ProofSuccess(System.currentTimeMillis() - startTime, text))
                     }
                   }
