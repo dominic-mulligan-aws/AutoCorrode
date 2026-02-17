@@ -57,9 +57,11 @@ object BedrockModels {
         .toList
       Output.writeln(s"[Assistant] Found ${profileModels.size} inference profiles")
 
-      // Combine, deduplicate, and sort all text models
-      val allModels = (foundationModels ++ profileModels).distinct.sorted.toArray
-      Output.writeln(s"[Assistant] Total text models: ${allModels.length}")
+      // Combine, deduplicate, filter to Anthropic only, and sort
+      val allModels = (foundationModels ++ profileModels)
+        .filter(_.contains("anthropic"))
+        .distinct.sorted.toArray
+      Output.writeln(s"[Assistant] Total Anthropic text models: ${allModels.length}")
 
       // Write cache
       Files.createDirectories(cacheFile.getParent)
