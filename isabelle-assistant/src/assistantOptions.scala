@@ -270,7 +270,7 @@ object AssistantOptions {
     val modelId = prop("assistant.model.id", "")
 
     SettingsSnapshot(
-      region = if (region.matches("^[a-z]{2}-[a-z]+-\\d+$")) region else "us-east-1",
+      region = if (region.matches("^[a-z]{2}(?:-[a-z]+)+-\\d+$")) region else "us-east-1",
       baseModelId = if (modelId.matches("^[a-zA-Z0-9._:/-]*$")) modelId else "",
       temperature = doubleProp("assistant.temperature", AssistantConstants.DEFAULT_TEMPERATURE, AssistantConstants.MIN_TEMPERATURE, AssistantConstants.MAX_TEMPERATURE),
       maxTokens = intProp("assistant.max.tokens", AssistantConstants.DEFAULT_MAX_TOKENS, AssistantConstants.MIN_MAX_TOKENS, AssistantConstants.MAX_MAX_TOKENS),
@@ -389,8 +389,8 @@ object AssistantOptions {
 
   /** Registry of all settings — single source of truth for get/set/list. */
   private val settingDefs: List[SettingDef] = List(
-    StringSetting("region", "assistant.aws.region", _.matches("^[a-z]{2}-[a-z]+-\\d+$"),
-      "Invalid region format. Expected format: us-east-1, eu-west-2, etc.", _.region),
+    StringSetting("region", "assistant.aws.region", _.matches("^[a-z]{2}(?:-[a-z]+)+-\\d+$"),
+      "Invalid region format. Expected format: us-east-1, eu-west-2, me-south-1, etc.", _.region),
     StringSetting("model", "assistant.model.id", _.matches("^[a-zA-Z0-9._:/-]*$"),
       "Invalid model ID format", _.baseModelId),
     BoolSetting("cris", "assistant.use.cris", _.useCris),

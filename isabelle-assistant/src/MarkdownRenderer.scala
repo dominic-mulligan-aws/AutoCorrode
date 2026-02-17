@@ -74,8 +74,10 @@ object MarkdownRenderer {
       val id = registerAction.get(codeStr)
       appendClickableBlock(sb, escaped, id)
     } else {
-      sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:#f8f8f8;")
-      sb.append("padding:8px 10px;margin:4px 0;border:1px solid #e0e0e0;border-radius:3px;")
+      val codeBg = UIColors.CodeBlock.background
+      val codeBorder = UIColors.CodeBlock.border
+      sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:$codeBg;")
+      sb.append(s"padding:8px 10px;margin:4px 0;border:1px solid $codeBorder;border-radius:3px;")
       sb.append("white-space:pre;overflow-x:auto;line-height:1.4;'>")
       sb.append(escaped)
       sb.append("</pre>")
@@ -87,35 +89,44 @@ object MarkdownRenderer {
     val rawCode = escapedCode.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
     val encodedForUrl = java.net.URLEncoder.encode(rawCode, "UTF-8")
     // Unified code block with integrated action bar
-    sb.append(s"<div style='margin:4px 0 6px;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden;'>")
+    val codeBg = UIColors.CodeBlock.background
+    val codeBorder = UIColors.CodeBlock.border
+    val actionBg = UIColors.CodeBlock.actionBackground
+    val actionBorder = UIColors.CodeBlock.actionBorder
+    val actionLinkBg = UIColors.CodeBlock.actionLinkBackground
+    val linkColor = UIColors.linkColor
+    
+    sb.append(s"<div style='margin:4px 0 6px;border:1px solid $codeBorder;border-radius:4px;overflow:hidden;'>")
     // Code area — clicking inserts
     sb.append(s"<a href='action:insert:$id' style='text-decoration:none;display:block;'>")
-    sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:#f8f8f8;")
+    sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:$codeBg;")
     sb.append("padding:8px 10px;margin:0;border:none;white-space:pre;overflow-x:auto;cursor:pointer;line-height:1.4;'>")
     sb.append(escapedCode)
     sb.append("</pre></a>")
     // Action bar — flush with code, no extra border
-    sb.append("<div style='padding:4px 10px;background:#f0f0f0;border-top:1px solid #e0e0e0;font-size:10pt;'>")
-    sb.append(s"<a href='action:insert:$id' style='color:#7b1fa2;text-decoration:none;padding:2px 8px;background:#e8e0f0;border-radius:8px;'>[Insert]</a>")
-    sb.append(s"  <a href='action:copy:$encodedForUrl' style='color:#7b1fa2;text-decoration:none;padding:2px 8px;background:#e8e0f0;border-radius:8px;'>[Copy]</a>")
+    sb.append(s"<div style='padding:4px 10px;background:$actionBg;border-top:1px solid $actionBorder;font-size:10pt;'>")
+    sb.append(s"<a href='action:insert:$id' style='color:$linkColor;text-decoration:none;padding:2px 8px;background:$actionLinkBg;border-radius:8px;'>[Insert]</a>")
+    sb.append(s"  <a href='action:copy:$encodedForUrl' style='color:$linkColor;text-decoration:none;padding:2px 8px;background:$actionLinkBg;border-radius:8px;'>[Copy]</a>")
     sb.append("</div></div>")
   }
 
   /** Render a markdown table starting at line index `start`. Returns next line index. */
   private def renderTable(lines: Array[String], start: Int, sb: StringBuilder): Int = {
     val headerCells = parseTableRow(lines(start))
+    val tableBorder = UIColors.Table.border
+    val headerBg = UIColors.Table.headerBackground
     // Skip separator row (line start+1)
     var i = start + 2
     sb.append("<table style='border-collapse:collapse;margin:4px 0;table-layout:fixed;width:100%;word-wrap:break-word;'>")
     sb.append("<tr>")
     for (cell <- headerCells)
-      sb.append(s"<th style='border:1px solid #d0d0d0;padding:4px 8px;background:#f0f0f0;font-size:11pt;text-align:left;'>${processInline(cell)}</th>")
+      sb.append(s"<th style='border:1px solid $tableBorder;padding:4px 8px;background:$headerBg;font-size:11pt;text-align:left;'>${processInline(cell)}</th>")
     sb.append("</tr>")
     while (i < lines.length && lines(i).trim.startsWith("|")) {
       val cells = parseTableRow(lines(i))
       sb.append("<tr>")
       for (cell <- cells)
-        sb.append(s"<td style='border:1px solid #d0d0d0;padding:4px 8px;font-size:11pt;'>${processInline(cell)}</td>")
+        sb.append(s"<td style='border:1px solid $tableBorder;padding:4px 8px;font-size:11pt;'>${processInline(cell)}</td>")
       sb.append("</tr>")
       i += 1
     }
@@ -188,8 +199,9 @@ object MarkdownRenderer {
     result = escapeHtml(result)
     result = result.replace("\u0001B", "<b>").replace("\u0001b", "</b>")
     result = result.replace("\u0001I", "<i>").replace("\u0001i", "</i>")
+    val inlineCodeBg = UIColors.inlineCodeBackground
     result = result.replace("\u0001C",
-      s"<code style='background:#f0f0f0;padding:1px 4px;font-family:$codeFont;font-size:11pt;border-radius:2px;'>")
+      s"<code style='background:$inlineCodeBg;padding:1px 4px;font-family:$codeFont;font-size:11pt;border-radius:2px;'>")
       .replace("\u0001c", "</code>")
     // Restore LaTeX images (already HTML, must not be escaped)
     for ((key, html) <- latexMap) result = result.replace(key, html)

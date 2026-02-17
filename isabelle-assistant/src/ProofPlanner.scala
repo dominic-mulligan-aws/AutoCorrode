@@ -25,18 +25,17 @@ object ProofPlanner {
     chat("## Proof Planning\nAnalyzing goal and available context...")
     
     try {
-      val subs = scala.collection.mutable.Map(
+      val subs = Map(
         "goal_state" -> goalState,
         "command" -> commandText
-      )
-      if (context.nonEmpty) subs("relevant_theorems") = context
+      ) ++ (if (context.nonEmpty) Map("relevant_theorems" -> context) else Map.empty)
       
       val latch = new CountDownLatch(1)
       @volatile var planResult: Either[Exception, String] = Left(new RuntimeException("timeout"))
       
       Isabelle_Thread.fork(name = "proof-plan") {
         try {
-          val plan = BedrockClient.invokeNoCache(PromptLoader.load("prove_plan.md", subs.toMap))
+          val plan = BedrockClient.invokeNoCache(PromptLoader.load("prove_plan.md", subs))
           planResult = Right(plan)
         } catch { 
           case ex: Exception => planResult = Left(ex) 

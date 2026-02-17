@@ -138,9 +138,6 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
             }
           )
 
-          operation.activate()
-          operation.apply_query_at_command(command, List(proofText))
-
           timeoutThread = Isabelle_Thread.fork(name = "verify-timeout") {
             try {
               Thread.sleep(timeoutMs)
@@ -148,6 +145,9 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
               GUI_Thread.later { operation.deactivate() }
             } catch { case _: InterruptedException => /* early completion, thread exits cleanly */ }
           }
+          
+          operation.activate()
+          operation.apply_query_at_command(command, List(proofText))
       }
     }
   }
@@ -208,9 +208,6 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
       }
     )
 
-    operation.activate()
-    operation.apply_query_at_command(command, List(proofText))
-
     timeoutThread = Isabelle_Thread.fork(name = "step-timeout") {
       try {
         Thread.sleep(timeoutMs)
@@ -218,6 +215,9 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
         GUI_Thread.later { operation.deactivate() }
       } catch { case _: InterruptedException => }
     }
+    
+    operation.activate()
+    operation.apply_query_at_command(command, List(proofText))
   }
 
   /** Parse the PROOF_COMPLETE/PROOF_STATE header from isar_explore output. */
@@ -371,78 +371,6 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
         GUI_Thread.later { operation.deactivate() }
       } catch { case _: InterruptedException => /* early completion */ }
     }
-    }
-  }
-
-  /**
-   * Abstract the common Extended_Query_Operation pattern to reduce code repetition.
-   * Handles: availability check, completion lock, timeout thread, operation lifecycle.
-   * 
-   * @param view jEdit view for the operation
-   * @param operationName Name of the I/Q operation (e.g., "isar_explore")
-   * @param queryArgs Arguments to pass to the query
-   * @param timeoutMs Timeout in milliseconds
-   * @param onStatusChange Callback when operation status changes
-   * @param onResults Callback when results arrive (called multiple times potentially)
-   * @param callback Final callback with aggregated result
-   * @tparam T Type of the aggregated result
-   */
-  private def runIQOperationAsync[T](
-    view: View,
-    command: Command,
-    operationName: String,
-    queryArgs: List[String],
-    timeoutMs: Long,
-    onStatusChange: Extended_Query_Operation.Status => Option[T],
-    onResults: List[XML.Tree] => Unit,
-    callback: Either[String, T] => Unit
-  ): Unit = {
-    if (!IQAvailable.isAvailable) {
-      callback(Left("I/Q unavailable"))
-      return
-    }
-
-    val completionLock = new Object()
-    @volatile var completed = false
-    @volatile var timeoutThread: Thread = null
-
-    def completeWith(result: Either[String, T]): Unit = {
-      completionLock.synchronized {
-        if (!completed) {
-          completed = true
-          callback(result)
-          val tt = timeoutThread
-          if (tt != null) tt.interrupt()
-        }
-      }
-    }
-
-    val operation = new Extended_Query_Operation(
-      PIDE.editor, view, operationName,
-      status => {
-        completionLock.synchronized {
-          if (!completed) {
-            onStatusChange(status).foreach(result => completeWith(Right(result)))
-          }
-        }
-      },
-      (snapshot, cmdResults, output) => {
-        completionLock.synchronized {
-          if (!completed) {
-            onResults(output)
-          }
-        }
-      }
-    )
-
-    operation.activate()
-    operation.apply_query_at_command(command, queryArgs)
-
-    timeoutThread = Isabelle_Thread.fork(name = s"$operationName-timeout") {
-      try {
-        Thread.sleep(timeoutMs)
-        GUI_Thread.later { operation.deactivate() }
-      } catch { case _: InterruptedException => /* early completion */ }
     }
   }
 

@@ -59,14 +59,13 @@ object TraceSimplifierAction {
     
     Isabelle_Thread.fork(name = "explain-trace") {
       try {
-        val subs = scala.collection.mutable.Map(
+        val subs = Map(
           "goal" -> goal,
           "trace" -> traceOutput,
           "method" -> method
-        )
-        if (timedOut) subs("timed_out") = "true"
+        ) ++ (if (timedOut) Map("timed_out" -> "true") else Map.empty)
         
-        val prompt = PromptLoader.load("trace_simplifier.md", subs.toMap)
+        val prompt = PromptLoader.load("trace_simplifier.md", subs)
         val response = BedrockClient.invokeInContext(prompt)
         
         GUI_Thread.later {

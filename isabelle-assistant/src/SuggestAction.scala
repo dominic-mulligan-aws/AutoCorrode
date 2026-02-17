@@ -183,16 +183,15 @@ object SuggestAction {
   ): Unit = {
     Isabelle_Thread.fork(name = "suggest-llm") {
       try {
-        val subs = scala.collection.mutable.Map(
+        val subs = Map(
           "command" -> commandText,
           "goal_state" -> goalState
-        )
-        if (contextInfo.nonEmpty) subs("relevant_theorems") = contextInfo
+        ) ++ (if (contextInfo.nonEmpty) Map("relevant_theorems" -> contextInfo) else Map.empty)
         
         Output.writeln(s"[Assistant] Suggest - Goal state:\n$goalState")
         Output.writeln(s"[Assistant] Suggest - Context:\n$contextInfo")
         
-        val prompt = PromptLoader.load("suggest_proof_step.md", subs.toMap)
+        val prompt = PromptLoader.load("suggest_proof_step.md", subs)
         Output.writeln(s"[Assistant] Suggest - Prompt length: ${prompt.length}")
         
         val response = BedrockClient.invokeInContext(prompt)

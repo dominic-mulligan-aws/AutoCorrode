@@ -533,8 +533,9 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
   }
 
   private def createUserMessageHtml(content: String, timestamp: String): String = {
-    val (bg, border, tsColor) = themeColors("user")
-    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;border-left:3px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;'>
+    val border = UIColors.ChatBubble.userBorder
+    val tsColor = UIColors.ChatBubble.userTimestamp
+    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
        |<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>You</b> · $timestamp</div>
        |<div>${MarkdownRenderer.toBodyHtml(content)}</div>
        |</div>""".stripMargin
@@ -553,28 +554,15 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
       "\\{\\{ACTION:([a-f0-9]+):([^}]+)\\}\\}".r.replaceAllIn(withLinks,
         m => s"<a href='action:insert:${m.group(1)}'>Run ${m.group(2)}</a>")
     }
-    val variant = if (isError) "error" else "assistant"
-    val (bg, border, tsColor) = themeColors(variant)
-    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;border-left:3px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;'>
+    val (border, tsColor) = if (isError) {
+      (UIColors.ChatBubble.errorBorder, UIColors.ChatBubble.errorTimestamp)
+    } else {
+      (UIColors.ChatBubble.assistantBorder, UIColors.ChatBubble.assistantTimestamp)
+    }
+    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
        |<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>Assistant</b> · $timestamp</div>
        |<div>$body</div>
        |</div>""".stripMargin
-  }
-
-  /** Compute theme-aware colors for chat bubbles. */
-  private def themeColors(variant: String): (String, String, String) = variant match {
-    case "user" =>
-      (UIColors.ChatBubble.userBackground,
-       UIColors.ChatBubble.userBorder,
-       UIColors.ChatBubble.userTimestamp)
-    case "error" =>
-      (UIColors.ChatBubble.errorBackground,
-       UIColors.ChatBubble.errorBorder,
-       UIColors.ChatBubble.errorTimestamp)
-    case _ => // assistant
-      (UIColors.ChatBubble.assistantBackground,
-       UIColors.ChatBubble.assistantBorder,
-       UIColors.ChatBubble.assistantTimestamp)
   }
 
   private def createWelcomeHtml(): String = {

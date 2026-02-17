@@ -66,6 +66,21 @@ object UIColors {
   // General link color
   def linkColor: String = "#7b1fa2"
   
-  // Code background for inline code
-  def codeBackground: String = "#f0f0f0"
+  // Code block colors for syntax highlighting
+  object CodeBlock {
+    def background: String = ThemeUtils.themedHex("#2a2a2a", "#f8f8f8")
+    def border: String = ThemeUtils.themedHex("#444", "#e0e0e0")
+    def actionBackground: String = ThemeUtils.themedHex("#353535", "#f0f0f0")
+    def actionBorder: String = ThemeUtils.themedHex("#444", "#e0e0e0")
+    def actionLinkBackground: String = ThemeUtils.themedHex("#4a3a5a", "#e8e0f0")
+  }
+  
+  // Inline code background
+  def inlineCodeBackground: String = ThemeUtils.themedHex("#3a3a3a", "#f0f0f0")
+  
+  // Table colors
+  object Table {
+    def border: String = ThemeUtils.themedHex("#555", "#d0d0d0")
+    def headerBackground: String = ThemeUtils.themedHex("#3a3a3a", "#f0f0f0")
+  }
 }

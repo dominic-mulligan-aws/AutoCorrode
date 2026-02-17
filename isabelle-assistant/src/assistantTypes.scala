@@ -4,55 +4,106 @@
 package isabelle.assistant
 
 /**
- * Type aliases for stringly-typed values throughout Isabelle Assistant.
+ * Opaque type aliases for stringly-typed values throughout Isabelle Assistant.
  * 
- * These aliases improve type safety by distinguishing between different
- * string "roles" in the type system. While Scala doesn't enforce newtype
- * semantics, these aliases serve as documentation and enable future
- * migration to opaque types or value classes if needed.
+ * These type aliases provide compile-time type safety by distinguishing between
+ * different string "roles" in the type system. Using opaque types ensures these
+ * are checked at compile time but have zero runtime overhead.
  * 
  * Usage guidelines:
- * - Use these aliases in public API signatures
- * - Internal functions may use String for brevity
- * - Consider using opaque types in Scala 3 for stronger guarantees
+ * - Use these aliases in all public API signatures
+ * - Internal functions should also use them for consistency
+ * - These prevent accidental mixing of semantically different strings
  */
 object AssistantTypes {
   /** AWS Bedrock model identifier (e.g., "anthropic.claude-3-sonnet-20240229-v1:0"). */
-  type ModelId = String
+  opaque type ModelId = String
+  object ModelId {
+    def apply(s: String): ModelId = s
+    extension (m: ModelId) def value: String = m
+  }
   
   /** AWS region identifier (e.g., "us-east-1"). */
-  type Region = String
+  opaque type Region = String
+  object Region {
+    def apply(s: String): Region = s
+    extension (r: Region) def value: String = r
+  }
   
   /** Complete prompt text sent to LLM. */
-  type PromptText = String
+  opaque type PromptText = String
+  object PromptText {
+    def apply(s: String): PromptText = s
+    extension (p: PromptText) def value: String = p
+  }
   
   /** Isabelle proof text (e.g., "by simp", "proof ... qed"). */
-  type ProofText = String
+  opaque type ProofText = String
+  object ProofText {
+    def apply(s: String): ProofText = s
+    extension (p: ProofText) def value: String = p
+  }
   
   /** Isabelle command source text (e.g., "lemma foo: P"). */
-  type CommandText = String
+  opaque type CommandText = String
+  object CommandText {
+    def apply(s: String): CommandText = s
+    extension (c: CommandText) def value: String = c
+  }
   
   /** Goal state text from PIDE output panel. */
-  type GoalState = String
+  opaque type GoalState = String
+  object GoalState {
+    def apply(s: String): GoalState = s
+    extension (g: GoalState) def value: String = g
+  }
   
   /** Error message text. */
-  type ErrorMessage = String
+  opaque type ErrorMessage = String
+  object ErrorMessage {
+    def apply(s: String): ErrorMessage = s
+    extension (e: ErrorMessage) def value: String = e
+  }
   
   /** LLM response text. */
-  type ResponseText = String
+  opaque type ResponseText = String
+  object ResponseText {
+    def apply(s: String): ResponseText = s
+    extension (r: ResponseText) def value: String = r
+  }
   
   /** Theory file name (e.g., "Foo.thy"). */
-  type TheoryName = String
+  opaque type TheoryName = String
+  object TheoryName {
+    def apply(s: String): TheoryName = s
+    extension (t: TheoryName) def value: String = t
+  }
   
   /** Lemma or theorem name identifier. */
-  type LemmaName = String
+  opaque type LemmaName = String
+  object LemmaName {
+    def apply(s: String): LemmaName = s
+    extension (l: LemmaName) def value: String = l
+  }
   
   /** JSON payload string for API requests. */
-  type JsonPayload = String
+  opaque type JsonPayload = String
+  object JsonPayload {
+    def apply(s: String): JsonPayload = s
+    extension (j: JsonPayload) def value: String = j
+  }
   
   /** Markdown-formatted text for chat display. */
-  type MarkdownText = String
+  opaque type MarkdownText = String
+  object MarkdownText {
+    def apply(s: String): MarkdownText = s
+    extension (m: MarkdownText) def value: String = m
+  }
   
   /** HTML-formatted text for rendering. */
-  type HtmlText = String
+  opaque type HtmlText = String
+  object HtmlText {
+    def apply(s: String): HtmlText = s
+    extension (h: HtmlText) def value: String = h
+  }
 }
