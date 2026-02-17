@@ -61,6 +61,7 @@ object ChatAction {
     "show-type" -> CommandEntry("Display type information for the symbol at cursor position", (v, _) => ShowTypeAction.showType(v)),
     "sledgehammer" -> CommandEntry("Run Sledgehammer to find automatic proofs using external provers", (v, _) => runSledgehammer(v), needsIQ = true),
     "suggest" -> CommandEntry("Generate proof step suggestions for the current proof state", (v, a) => runSuggest(v, a)),
+    "suggest-name" -> CommandEntry("Suggest a descriptive name for the lemma, theorem, or definition at cursor", (v, _) => SuggestNameAction.chatSuggestName(v)),
     "suggest-strategy" -> CommandEntry("Recommend high-level proof strategies for the current goal", (v, _) => SuggestStrategyAction.suggest(v)),
     "suggest-tactic" -> CommandEntry("Suggest specific tactics to apply at the current proof step", (v, _) => SuggestTacticAction.chatSuggest(v)),
     "summarize" -> CommandEntry("Generate a summary of theory content including key definitions", (v, _) => SummarizeTheoryAction.summarize(v)),

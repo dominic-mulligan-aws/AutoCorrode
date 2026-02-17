@@ -113,12 +113,13 @@ class AssistantContextMenu extends DynamicContextMenuService {
           // Use PIDE span name for command type detection — no string splitting
           val commandType = GenerateDocAction.detectCommandTypeAtOffset(buffer, offset)
           if (commandType.isDefined) {
-            addItem(genMenu, "Doc Comment") { _ =>
-              commandForDoc.foreach(text =>
-                GenerateDocAction.generate(view, text, commandType.getOrElse("command")))
-            }
+          addItem(genMenu, "Doc Comment") { _ =>
+            commandForDoc.foreach(text =>
+              GenerateDocAction.generate(view, text, commandType.getOrElse("command")))
           }
+        }
 
+          addItem(genMenu, "Suggest Name")(_ => SuggestNameAction.suggestName(view))
           addItem(genMenu, "Tidy Up")(_ => TidyAction.tidy(view))
 
           if (ctx.hasSelection)

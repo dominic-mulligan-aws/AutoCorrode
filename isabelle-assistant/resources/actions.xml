@@ -5,6 +5,11 @@
 			isabelle.assistant.SuggestAction.suggest(view, view.getBuffer(), view.getTextArea().getCaretPosition());
 		</CODE>
 	</ACTION>
+	<ACTION NAME="assistant-suggest-name">
+		<CODE>
+			isabelle.assistant.SuggestNameAction.suggestName(view);
+		</CODE>
+	</ACTION>
 	<ACTION NAME="assistant-explain">
 		<CODE>
 			String sel = view.getTextArea().getSelectedText();
