@@ -10,9 +10,6 @@ import org.gjt.sp.jedit.View
 /** Runs Quickcheck via I/Q and offers LLM explanation of counterexamples. */
 object QuickcheckAction {
   def run(view: View): Unit = {
-    ChatAction.addMessage("user", ":quickcheck")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-    
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     val commandOpt = IQIntegration.getCommandAtOffset(buffer, offset)

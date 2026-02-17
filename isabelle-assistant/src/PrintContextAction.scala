@@ -45,10 +45,6 @@ object PrintContextAction {
   }
 
   def run(view: View): Unit = {
-    // Emit command to chat
-    ChatAction.addMessage("user", ":print-context")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-    
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     val commandOpt = IQIntegration.getCommandAtOffset(buffer, offset)

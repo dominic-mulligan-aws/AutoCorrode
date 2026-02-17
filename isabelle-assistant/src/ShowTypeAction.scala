@@ -11,9 +11,6 @@ import org.gjt.sp.jedit.buffer.JEditBuffer
 /** Displays type information at cursor from PIDE typing markup. */
 object ShowTypeAction {
   def showType(view: View): Unit = {
-    ChatAction.addMessage("user", ":show-type")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
 

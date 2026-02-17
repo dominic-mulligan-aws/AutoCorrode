@@ -25,14 +25,16 @@ object SuggestNameAction {
   )
 
   /** Chat command handler: suggest name for command at cursor. */
-  def chatSuggestName(view: View): Unit = suggestName(view)
+  def chatSuggestName(view: View): Unit = suggestNameInternal(view)
 
   /** Context menu handler: suggest name for command at cursor. */
   def suggestName(view: View): Unit = {
-    // Echo command to chat (both from context menu and chat command)
     ChatAction.addMessage("user", ":suggest-name")
     AssistantDockable.showConversation(ChatAction.getHistory)
-    
+    suggestNameInternal(view)
+  }
+
+  private def suggestNameInternal(view: View): Unit = {
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     

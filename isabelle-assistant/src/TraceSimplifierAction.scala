@@ -11,10 +11,6 @@ import org.gjt.sp.jedit.View
 object TraceSimplifierAction {
   
   def trace(view: View, method: String = "simp"): Unit = {
-    // Emit command to chat
-    ChatAction.addMessage("user", ":trace")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-    
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     

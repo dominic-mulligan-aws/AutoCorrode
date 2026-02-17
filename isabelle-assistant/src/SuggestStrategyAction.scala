@@ -10,6 +10,9 @@ import org.gjt.sp.jedit.View
 object SuggestStrategyAction {
   
   def suggest(view: View): Unit = {
+    ChatAction.addMessage("user", ":suggest-strategy")
+    AssistantDockable.showConversation(ChatAction.getHistory)
+    
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     

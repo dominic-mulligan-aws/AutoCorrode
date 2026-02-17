@@ -22,9 +22,6 @@ object SummarizeTheoryAction {
   }
 
   def summarize(view: View): Unit = {
-    ChatAction.addMessage("user", ":summarize")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-
     val buffer = view.getBuffer
     val source = buffer.getText(0, buffer.getLength)
     val estimatedTokens = source.length / 4

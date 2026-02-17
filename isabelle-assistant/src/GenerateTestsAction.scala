@@ -12,7 +12,7 @@ object GenerateTestsAction {
   /** Chat command handler: generate tests for definition at cursor. */
   def chatGenerate(view: View): Unit = {
     CommandExtractor.getCommandAtOffset(view.getBuffer, view.getTextArea.getCaretPosition) match {
-      case Some(text) => generate(view, text)
+      case Some(text) => generateInternal(view, text)
       case None => ChatAction.addResponse("No definition found at cursor position.")
     }
   }
@@ -20,6 +20,10 @@ object GenerateTestsAction {
   def generate(view: View, definitionText: String): Unit = {
     ChatAction.addMessage("user", ":generate-tests selection")
     AssistantDockable.showConversation(ChatAction.getHistory)
+    generateInternal(view, definitionText)
+  }
+
+  private def generateInternal(view: View, definitionText: String): Unit = {
     
     ActionHelper.runAsync("assistant-generate-tests", "Generating test cases...") {
       val context = ContextFetcher.getContext(view, 3000)

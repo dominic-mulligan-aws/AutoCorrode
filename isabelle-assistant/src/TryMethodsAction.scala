@@ -13,9 +13,6 @@ object TryMethodsAction {
   private val methods = List("by simp", "by auto", "by blast", "by force", "by fastforce")
 
   def run(view: View): Unit = {
-    ChatAction.addMessage("user", ":try-methods")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-    
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     val commandOpt = IQIntegration.getCommandAtOffset(buffer, offset)

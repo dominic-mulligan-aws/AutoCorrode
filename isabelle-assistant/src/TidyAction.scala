@@ -9,9 +9,6 @@ import org.gjt.sp.jedit.View
 /** Cleans up Isabelle code via LLM (cartouches, formatting) with optional I/Q verification and retry. */
 object TidyAction {
   def tidy(view: View): Unit = {
-    ChatAction.addMessage("user", ":tidy")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-    
     val buffer = view.getBuffer
     val textArea = view.getTextArea
     val selection = textArea.getSelectedText

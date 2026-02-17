@@ -10,9 +10,6 @@ import org.gjt.sp.jedit.View
 /** Runs Nitpick model finder via I/Q and offers LLM explanation of counterexamples. */
 object NitpickAction {
   def run(view: View): Unit = {
-    ChatAction.addMessage("user", ":nitpick")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-    
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     val commandOpt = IQIntegration.getCommandAtOffset(buffer, offset)
