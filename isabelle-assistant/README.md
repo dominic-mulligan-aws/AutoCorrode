@@ -130,6 +130,7 @@ Right-click in any `.thy` file to access the **Isabelle Assistant** submenu. Ava
 | **Generation** | Doc Comment | Generate documentation comments | |
 | | Intro/Elim Rules | Generate introduction and elimination rules | |
 | | Test Cases | Generate QuickCheck-style test cases | |
+| | Suggest Name | Suggest descriptive names for definitions/lemmas/theorems | |
 | | Suggest Tactic | Generate Eisbach methods | |
 | **Analysis** | Analyze Patterns | Analyze proof patterns and suggest improvements | |
 | | Find Theorems | Search for matching theorems | ✓ |
@@ -173,6 +174,7 @@ Type `:help` in the chat to see all commands. Commands are prefixed with `:`.
 | `:explain-error` | Explain error at cursor |
 | `:explain-counterexample` | Explain counterexample |
 | `:suggest [target]` | Suggest proof steps |
+| `:suggest-name` | Suggest descriptive names for definitions/lemmas/theorems |
 | `:suggest-strategy` | Recommend proof strategy |
 | `:suggest-tactic` | Generate Eisbach method |
 | `:prove` | Autonomous proof search |
