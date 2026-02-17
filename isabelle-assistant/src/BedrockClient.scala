@@ -211,17 +211,13 @@ object BedrockClient {
 
   /**
    * Retry an operation with exponential backoff, cancellation checks, and
-   * circuit-breaker integration.
-   * 
-   * Fixed: recordFailure() is only called once on final failure (in the guard check),
-   * not twice (once in catch block, once in guard of next recursive call).
+   * circuit-breaker integration with capped delay.
    */
   private def retryWithBackoff[T](maxAttempts: Int)(operation: => T): T = {
     def retry(attempt: Int, lastException: Option[Exception]): T = {
       if (AssistantDockable.isCancelled)
         throw new RuntimeException("Operation cancelled")
       if (attempt > maxAttempts) {
-        // Record failure ONCE here on exceeding max attempts
         recordFailure()
         val msg = lastException.map(_.getMessage).getOrElse("Unknown error")
         throw new RuntimeException(ErrorHandler.makeUserFriendly(msg, "API call"))
@@ -237,13 +233,14 @@ object BedrockClient {
           if (AssistantDockable.isCancelled)
             throw new RuntimeException("Operation cancelled")
           if (attempt < maxAttempts) {
-            val delay = baseRetryDelayMs * math.pow(2, attempt - 1).toLong
+            // Cap exponential backoff at 30 seconds
+            val delay = math.min(30000L, baseRetryDelayMs * math.pow(2, attempt - 1).toLong)
             Output.writeln(s"[Assistant] Attempt $attempt failed, retrying in ${delay}ms: ${ErrorHandler.makeUserFriendly(ex.getMessage, "request")}")
             Thread.sleep(delay)
             retry(attempt + 1, Some(ex))
           } else {
-            // DO NOT call recordFailure() here - let the guard above handle it
-            // to avoid double-counting the final failure
+            // Final attempt failed - record failure before throwing
+            recordFailure()
             throw new RuntimeException(ErrorHandler.makeUserFriendly(ex.getMessage, "API call"), ex)
           }
       }
@@ -287,12 +284,15 @@ object BedrockClient {
         List.empty
       } else {
         // Accumulate messages from most recent backwards until we hit the budget.
-        // More idiomatic: use scanRight to compute cumulative sizes, then takeWhile.
-        val withSizes = messages.reverse.map { case (role, content) => (role, content, content.length) }
-        val cumulativeSizes = withSizes.scanLeft(0)((acc, msg) => acc + msg._3)
-        val numToKeep = cumulativeSizes.zip(withSizes).takeWhile { case (cumSize, _) => cumSize <= available }.length - 1
-        val kept = if (numToKeep > 0) {
-          messages.takeRight(numToKeep)
+        val reversed = messages.reverse
+        var accumulated = 0
+        var kept = 0
+        for ((role, content) <- reversed if accumulated + content.length <= available) {
+          accumulated += content.length
+          kept += 1
+        }
+        if (kept > 0) {
+          messages.takeRight(kept)
         } else {
           // If no messages fit (e.g., single oversized message), take the last message but truncate it
           if (messages.nonEmpty) {
@@ -306,7 +306,6 @@ object BedrockClient {
             List.empty
           }
         }
-        kept
       }
     }
     if (truncated.length < messages.length)

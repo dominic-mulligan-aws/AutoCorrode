@@ -288,9 +288,9 @@ object ChatAction {
             Isabelle_Thread.fork(name = "chat-explain") {
               try {
                 val context = ContextFetcher.getContext(view, 3000)
-                val subs = scala.collection.mutable.Map("theorem" -> text)
-                context.foreach(c => subs("context") = c)
-                val prompt = PromptLoader.load("explain_with_context.md", subs.toMap)
+                val subs = Map("theorem" -> text) ++
+                  context.map(c => Map("context" -> c)).getOrElse(Map.empty)
+                val prompt = PromptLoader.load("explain_with_context.md", subs)
                 val response = BedrockClient.invokeInContext(prompt)
                 GUI_Thread.later {
                   addResponse(response)
@@ -360,13 +360,12 @@ object ChatAction {
 
       Isabelle_Thread.fork(name = "chat-explain-error") {
         try {
-          val subs = scala.collection.mutable.Map(
+          val subs = Map(
             "error" -> error.get,
             "context" -> context
-          )
-          goalState.foreach(g => subs("goal_state") = g)
+          ) ++ goalState.map(g => Map("goal_state" -> g)).getOrElse(Map.empty)
 
-          val prompt = PromptLoader.load("explain_error.md", subs.toMap)
+          val prompt = PromptLoader.load("explain_error.md", subs)
           val response = BedrockClient.invokeInContext(prompt)
 
           GUI_Thread.later {
@@ -447,10 +446,10 @@ object ChatAction {
               val goalState = GoalExtractor.getGoalState(buffer, offset)
               val context = CommandExtractor.getCommandAtOffset(buffer, offset)
               try {
-                val subs = scala.collection.mutable.Map("proof" -> proof, "error" -> error)
-                goalState.foreach(g => subs("goal_state") = g)
-                context.foreach(c => subs("context") = c)
-                val diagPrompt = PromptLoader.load("diagnose_verification.md", subs.toMap)
+                val subs = Map("proof" -> proof, "error" -> error) ++
+                  goalState.map(g => Map("goal_state" -> g)).getOrElse(Map.empty) ++
+                  context.map(c => Map("context" -> c)).getOrElse(Map.empty)
+                val diagPrompt = PromptLoader.load("diagnose_verification.md", subs)
                 // Use invokeNoCache (stateless) to avoid polluting chat history
                 val diagnosis = BedrockClient.invokeNoCache(diagPrompt)
                 GUI_Thread.later { addResponse(diagnosis) }

@@ -30,10 +30,10 @@ object RefactorAction {
           fetchContext(view, commandOpt.get)
         } else ""
         
-        val subs = scala.collection.mutable.Map("proof" -> proofText)
-        if (context.nonEmpty) subs("context") = context
+        val subs = Map("proof" -> proofText) ++
+          (if (context.nonEmpty) Map("context" -> context) else Map.empty)
         
-        val prompt = PromptLoader.load("refactor_to_isar.md", subs.toMap)
+        val prompt = PromptLoader.load("refactor_to_isar.md", subs)
         val response = BedrockClient.invokeInContext(prompt)
 
         if (!canVerify) {

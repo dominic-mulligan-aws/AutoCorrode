@@ -47,28 +47,27 @@ object SketchGenerator {
     for (i <- 1 to numBranches) {
       Isabelle_Thread.fork(name = s"prove-sketch-$i") {
         try {
-          val subs = scala.collection.mutable.Map(
+          val subs = Map(
             "goal_state" -> goalState, 
             "command" -> commandText
-          )
-          if (context.nonEmpty) subs("relevant_theorems") = context
-          if (plan.nonEmpty) subs("proof_plan") = plan
+          ) ++ (if (context.nonEmpty) Map("relevant_theorems" -> context) else Map.empty) ++
+               (if (plan.nonEmpty) Map("proof_plan" -> plan) else Map.empty)
           
-          val latch = new CountDownLatch(1)
+          val llmLatch = new CountDownLatch(1)
           @volatile var response: Option[String] = None
           
           Isabelle_Thread.fork(name = s"sketch-llm-$i") {
             try {
               response = Some(BedrockClient.invokeNoCache(
-                PromptLoader.load("prove_sketch.md", subs.toMap)))
+                PromptLoader.load("prove_sketch.md", subs)))
             } catch { 
               case _: Exception => 
             } finally {
-              latch.countDown()
+              llmLatch.countDown()
             }
           }
           
-          latch.await(AssistantConstants.PROVE_LLM_CALL_TIMEOUT, TimeUnit.MILLISECONDS)
+          llmLatch.await(AssistantConstants.PROVE_LLM_CALL_TIMEOUT, TimeUnit.MILLISECONDS)
           response.foreach { r =>
             val code = ProofTextUtil.extractCode(r)
             Output.writeln(s"[Assistant] sketch-$i extractCode result (${code.length} chars): <<<$code>>>")

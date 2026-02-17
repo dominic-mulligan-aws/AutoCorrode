@@ -431,14 +431,13 @@ object ProofLoop {
     proof: String, goalForFill: String, context: String, plan: String = ""
   ): Option[String] = {
     val failedList = simpleMethods.take(5).mkString(", ")
-    val subs = scala.collection.mutable.Map(
+    val subs = Map(
       "goal_state" -> goalForFill,
       "command" -> commandText,
       "proof_context" -> markSorry(proof, 0),
       "failed_methods" -> failedList
-    )
-    if (context.nonEmpty) subs("relevant_theorems") = context
-    if (plan.nonEmpty) subs("proof_plan") = plan
+    ) ++ (if (context.nonEmpty) Map("relevant_theorems" -> context) else Map.empty) ++
+         (if (plan.nonEmpty) Map("proof_plan" -> plan) else Map.empty)
 
     // Generate multiple refinement candidates in parallel
     val candidates = new ConcurrentLinkedQueue[String]()
@@ -446,7 +445,7 @@ object ProofLoop {
     for (i <- 1 to numBranches) {
       Isabelle_Thread.fork(name = s"prove-refine-$i") {
         try {
-          val refinement = extractCode(invokeLLMWithTimeout(PromptLoader.load("prove_refine.md", subs.toMap)))
+          val refinement = extractCode(invokeLLMWithTimeout(PromptLoader.load("prove_refine.md", subs)))
           if (refinement.nonEmpty) candidates.add(refinement)
         } catch { case _: Exception => }
         latch.countDown()
@@ -912,12 +911,12 @@ object ProofLoop {
     for (i <- 1 to numBranches) {
       Isabelle_Thread.fork(name = s"prove-fill-$i") {
         try {
-          val subs = scala.collection.mutable.Map(
+          val subs = Map(
             "goal_state" -> goalForFill, "command" -> commandText,
-            "proof_context" -> markSorry(proof, 0))
-          if (context.nonEmpty) subs("relevant_theorems") = context
-          if (plan.nonEmpty) subs("proof_plan") = plan
-          val code = extractCode(invokeLLMWithTimeout(PromptLoader.load("prove_fill.md", subs.toMap)))
+            "proof_context" -> markSorry(proof, 0)
+          ) ++ (if (context.nonEmpty) Map("relevant_theorems" -> context) else Map.empty) ++
+               (if (plan.nonEmpty) Map("proof_plan" -> plan) else Map.empty)
+          val code = extractCode(invokeLLMWithTimeout(PromptLoader.load("prove_fill.md", subs)))
           if (code.nonEmpty) fills.add(code)
         } catch { case _: Exception => }
         fillLatch.countDown()
@@ -1060,15 +1059,14 @@ object ProofLoop {
         try {
           // Get subgoals at each unfilled sorry by executing prefixes
           val subgoals = collectUnfilledSubgoals(view, command, finalProof)
-          val subs = scala.collection.mutable.Map(
+          val subs = Map(
             "command" -> commandText,
             "proof" -> finalProof,
             "num_sorries" -> totalRemaining.toString
-          )
-          if (totalRemaining != 1) subs("plural") = "true"
-          if (subgoals.nonEmpty) subs("subgoals") = subgoals
-          if (context.nonEmpty) subs("context") = context
-          chat(BedrockClient.invokeNoCache(PromptLoader.load("prove_diagnose.md", subs.toMap)))
+          ) ++ (if (totalRemaining != 1) Map("plural" -> "true") else Map.empty) ++
+               (if (subgoals.nonEmpty) Map("subgoals" -> subgoals) else Map.empty) ++
+               (if (context.nonEmpty) Map("context" -> context) else Map.empty)
+          chat(BedrockClient.invokeNoCache(PromptLoader.load("prove_diagnose.md", subs)))
         } catch { case _: Exception => }
       }
       reportResult(view, Some(finalProof), s"$totalRemaining unfilled sorries, ${elapsed}s", commandText)
