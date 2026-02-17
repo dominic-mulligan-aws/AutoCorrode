@@ -43,7 +43,7 @@ object GenerateDocAction {
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     CommandExtractor.getCommandAtOffset(buffer, offset) match {
-      case Some(commandText) => generate(view, commandText, "definition")
+      case Some(commandText) => generateInternal(view, commandText, "definition")
       case None => ChatAction.addResponse("No command found at cursor position.")
     }
   }
@@ -51,7 +51,10 @@ object GenerateDocAction {
   def generate(view: View, commandText: String, commandType: String): Unit = {
     ChatAction.addMessage("user", ":generate-doc")
     AssistantDockable.showConversation(ChatAction.getHistory)
+    generateInternal(view, commandText, commandType)
+  }
 
+  private def generateInternal(view: View, commandText: String, commandType: String): Unit = {
     val promptOpt = try {
       Some(PromptLoader.load("generate_doc.md", Map("command" -> commandText, "command_type" -> commandType)))
     } catch {

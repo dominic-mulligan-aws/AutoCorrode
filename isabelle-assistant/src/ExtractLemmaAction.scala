@@ -32,6 +32,9 @@ object ExtractLemmaAction {
   }
 
   def extract(view: View, selectedText: String): Unit = {
+    ChatAction.addMessage("user", ":extract selection")
+    AssistantDockable.showConversation(ChatAction.getHistory)
+    
     val buffer = view.getBuffer
     val textArea = view.getTextArea
     val selStart = if (textArea.getSelectionCount > 0) textArea.getSelection(0).getStart else textArea.getCaretPosition

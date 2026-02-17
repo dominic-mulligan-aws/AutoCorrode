@@ -18,6 +18,9 @@ object SuggestTacticAction {
   }
 
   def suggest(view: View, proofPattern: String): Unit = {
+    ChatAction.addMessage("user", ":suggest-tactic selection")
+    AssistantDockable.showConversation(ChatAction.getHistory)
+    
     val hasEisbach = AssistantSupport.hasEisbach(view.getBuffer)
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition

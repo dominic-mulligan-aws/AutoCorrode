@@ -16,6 +16,9 @@ object RefactorAction {
   }
 
   def refactor(view: View, proofText: String): Unit = {
+    ChatAction.addMessage("user", ":refactor selection")
+    AssistantDockable.showConversation(ChatAction.getHistory)
+    
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
     val commandOpt = IQIntegration.getCommandAtOffset(buffer, offset)

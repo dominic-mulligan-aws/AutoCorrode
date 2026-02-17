@@ -15,9 +15,6 @@ import org.gjt.sp.jedit.View
 object AnalyzePatternsAction {
   
   def analyze(view: View): Unit = {
-    ChatAction.addMessage("user", ":analyze")
-    AssistantDockable.showConversation(ChatAction.getHistory)
-    
     val buffer = view.getBuffer
     val proofs = extractProofBlocks(buffer)
     

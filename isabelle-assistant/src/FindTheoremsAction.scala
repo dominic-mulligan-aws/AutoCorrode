@@ -15,33 +15,40 @@ object FindTheoremsAction {
       Option(JOptionPane.showInputDialog(view, "Search pattern:", "Find Theorems", JOptionPane.PLAIN_MESSAGE))
         .map(_.trim).filter(_.nonEmpty)
     }
+    
     if (patternOpt.isEmpty) ()
-    else if (!IQAvailable.isAvailable) {
-      GUI.warning_dialog(view, "Isabelle Assistant", "I/Q plugin not available")
-    } else {
-      val pattern = toSearchPattern(patternOpt.get, view)
-      val buffer = view.getBuffer
-      val offset = view.getTextArea.getCaretPosition
-      val commandOpt = IQIntegration.getCommandAtOffset(buffer, offset)
-
-      if (commandOpt.isEmpty) {
-        GUI.warning_dialog(view, "Isabelle Assistant", "No Isabelle command at cursor position")
+    else {
+      val pattern = patternOpt.get
+      ChatAction.addMessage("user", s":find $pattern")
+      AssistantDockable.showConversation(ChatAction.getHistory)
+      
+      if (!IQAvailable.isAvailable) {
+        GUI.warning_dialog(view, "Isabelle Assistant", "I/Q plugin not available")
       } else {
-        AssistantDockable.setStatus("Searching theorems...")
-        val quotedPattern = "\"" + pattern + "\""
+        val searchPattern = toSearchPattern(pattern, view)
+        val buffer = view.getBuffer
+        val offset = view.getTextArea.getCaretPosition
+        val commandOpt = IQIntegration.getCommandAtOffset(buffer, offset)
 
-        IQIntegration.runFindTheoremsAsync(
-          view, commandOpt.get, quotedPattern,
-          AssistantOptions.getFindTheoremsLimit,
-          AssistantOptions.getFindTheoremsTimeout,
-          {
-            case Right(results) => GUI_Thread.later { displayResults(view, pattern, results) }
-            case Left(error) => GUI_Thread.later {
-              AssistantDockable.respondInChat(s"Find theorems error: $error")
-              AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+        if (commandOpt.isEmpty) {
+          GUI.warning_dialog(view, "Isabelle Assistant", "No Isabelle command at cursor position")
+        } else {
+          AssistantDockable.setStatus("Searching theorems...")
+          val quotedPattern = "\"" + searchPattern + "\""
+
+          IQIntegration.runFindTheoremsAsync(
+            view, commandOpt.get, quotedPattern,
+            AssistantOptions.getFindTheoremsLimit,
+            AssistantOptions.getFindTheoremsTimeout,
+            {
+              case Right(results) => GUI_Thread.later { displayResults(view, searchPattern, results) }
+              case Left(error) => GUI_Thread.later {
+                AssistantDockable.respondInChat(s"Find theorems error: $error")
+                AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+              }
             }
-          }
-        )
+          )
+        }
       }
     }
   }
