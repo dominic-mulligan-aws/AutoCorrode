@@ -527,10 +527,10 @@ object AssistantTools {
   }
 
   private def execGetErrors(args: Map[String, Any], view: View): String = {
-    val scope = safeStringArg(args, "scope", 200).toLowerCase
-    val effectiveScope = if (scope.isEmpty) "all" else scope
+    val rawScope = safeStringArg(args, "scope", 200)
+    val effectiveScope = if (rawScope.isEmpty) "all" else rawScope
 
-    effectiveScope match {
+    effectiveScope.toLowerCase match {
       case "cursor" =>
         val latch = new CountDownLatch(1)
         @volatile var result = "No errors at cursor position."
@@ -558,13 +558,14 @@ object AssistantTools {
         latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
         result
 
-      case theoryName =>
-        val normalized = if (theoryName.endsWith(".thy")) theoryName else s"$theoryName.thy"
+      case _ =>
+        // Use original case for theory name (case-sensitive)
+        val normalized = if (effectiveScope.endsWith(".thy")) effectiveScope else s"$effectiveScope.thy"
         findBuffer(normalized) match {
-          case None => s"Theory '$theoryName' not found in open buffers."
+          case None => s"Theory '$effectiveScope' not found in open buffers."
           case Some(buffer) =>
             val latch = new CountDownLatch(1)
-            @volatile var result = s"No errors in theory '$theoryName'."
+            @volatile var result = s"No errors in theory '$effectiveScope'."
             GUI_Thread.later {
               try {
                 extractMessagesInBuffer(buffer, Markup.Elements(Markup.ERROR_MESSAGE, Markup.ERROR)).foreach(e => result = e)
@@ -772,10 +773,10 @@ object AssistantTools {
   }
 
   private def execGetWarnings(args: Map[String, Any], view: View): String = {
-    val scope = safeStringArg(args, "scope", 200).toLowerCase
-    val effectiveScope = if (scope.isEmpty) "all" else scope
+    val rawScope = safeStringArg(args, "scope", 200)
+    val effectiveScope = if (rawScope.isEmpty) "all" else rawScope
 
-    effectiveScope match {
+    effectiveScope.toLowerCase match {
       case "cursor" =>
         val latch = new CountDownLatch(1)
         @volatile var result = "No warnings at cursor position."
@@ -803,13 +804,14 @@ object AssistantTools {
         latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
         result
 
-      case theoryName =>
-        val normalized = if (theoryName.endsWith(".thy")) theoryName else s"$theoryName.thy"
+      case _ =>
+        // Use original case for theory name (case-sensitive)
+        val normalized = if (effectiveScope.endsWith(".thy")) effectiveScope else s"$effectiveScope.thy"
         findBuffer(normalized) match {
-          case None => s"Theory '$theoryName' not found in open buffers."
+          case None => s"Theory '$effectiveScope' not found in open buffers."
           case Some(buffer) =>
             val latch = new CountDownLatch(1)
-            @volatile var result = s"No warnings in theory '$theoryName'."
+            @volatile var result = s"No warnings in theory '$effectiveScope'."
             GUI_Thread.later {
               try {
                 extractMessagesInBuffer(buffer, Markup.Elements(Markup.WARNING_MESSAGE, Markup.WARNING, Markup.LEGACY)).foreach(w => result = w)
@@ -1057,10 +1059,7 @@ object AssistantTools {
             result = s"Error: file $name.thy already exists"
           } else {
             val effectiveImports = if (imports.isEmpty) "Main" else imports
-            val theoryContent = s"""theory $name imports $effectiveImports begin
-              |
-              |${if (content.nonEmpty) content + "\n\n" else ""}end
-              |""".stripMargin
+            val theoryContent = s"theory $name imports $effectiveImports begin\n\n${if (content.nonEmpty) content + "\n\n" else ""}end\n"
             
             java.nio.file.Files.write(java.nio.file.Paths.get(filePath), theoryContent.getBytes("UTF-8"))
             org.gjt.sp.jedit.jEdit.openFile(view, filePath)
