@@ -386,7 +386,7 @@ object BedrockClient {
         val textParts = blocks.collect { case ResponseParser.TextBlock(t) => t }
         val toolUses = blocks.collect { case t: ResponseParser.ToolUseBlock => t }
 
-        if (toolUses.isEmpty || stopReason != "tool_use") {
+        if (toolUses.isEmpty) {
           // No tool calls — we're done
           finalText = textParts.mkString("\n")
           continue = false
@@ -422,7 +422,10 @@ object BedrockClient {
       }
     }
 
-    if (finalText.isEmpty) throw new RuntimeException("Tool-use loop produced no text response")
+    if (finalText.isEmpty) {
+      Output.warning("[Assistant] Tool-use loop completed without text response")
+      finalText = "I processed the request using tools but could not generate a text summary. Please try again or rephrase your question."
+    }
     Output.writeln(s"[Assistant] Tool loop completed in $iteration iterations, response: ${finalText.length} chars")
     finalText
   }
