@@ -38,7 +38,12 @@ object ExplainErrorAction {
     try {
       Document_Model.get_model(buffer).flatMap { model =>
         val snapshot = Document_Model.snapshot(model)
-        val range = Text.Range(offset, offset + 1)
+        // Expand search to entire command span, not just 1 character at cursor
+        val command = IQIntegration.getCommandAtOffset(buffer, offset)
+        val range = command match {
+          case Some(cmd) => cmd.range
+          case None => Text.Range(offset, offset + 1)  // Fallback to single char
+        }
 
         val errors = snapshot.cumulate(range, List.empty[String],
           Markup.Elements(Markup.ERROR_MESSAGE, Markup.ERROR), _ => {
