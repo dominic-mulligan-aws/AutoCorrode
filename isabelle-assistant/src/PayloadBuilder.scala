@@ -19,9 +19,9 @@ object PayloadBuilder {
   // --- Provider detection ---
 
   /** Check if a model ID belongs to a given provider (e.g., "anthropic", "meta").
-   *  Handles CRIS-prefixed IDs like "us.anthropic.claude-..." */
+   *  Handles CRIS-prefixed IDs like "us.anthropic.claude-..." and global inference profiles. */
   def isProvider(modelId: String, provider: String): Boolean = {
-    val stripped = if (modelId.matches("^(us|eu|ap)\\..*")) modelId.dropWhile(_ != '.').drop(1) else modelId
+    val stripped = if (modelId.matches("^(us|eu|ap|global)\\..*")) modelId.dropWhile(_ != '.').drop(1) else modelId
     stripped.startsWith(provider + ".")
   }
 

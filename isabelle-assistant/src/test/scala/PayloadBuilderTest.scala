@@ -33,8 +33,9 @@ class PayloadBuilderTest extends AnyFunSuite with Matchers {
 
   test("isProvider should handle CRIS-prefixed IDs") {
     PayloadBuilder.isProvider("us.anthropic.claude-3-sonnet", "anthropic") shouldBe true
-    PayloadBuilder.isProvider("eu.anthropic.claude-3-haiku", "anthropic") shouldBe true
-    PayloadBuilder.isProvider("ap.meta.llama3-8b", "meta") shouldBe true
+    PayloadBuilder.isProvider("eu.anthropic.claude-3-sonnet", "anthropic") shouldBe true
+    PayloadBuilder.isProvider("ap.meta.llama3-70b", "meta") shouldBe true
+    PayloadBuilder.isProvider("global.anthropic.claude-haiku-4-5", "anthropic") shouldBe true
   }
 
   test("isProvider should reject mismatches") {

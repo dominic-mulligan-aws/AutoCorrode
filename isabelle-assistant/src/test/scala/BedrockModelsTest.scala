@@ -18,6 +18,7 @@ class BedrockModelsTest extends AnyFunSuite with Matchers {
 
   test("applyCrisPrefix does not double-prefix") {
     BedrockModels.applyCrisPrefix("us.anthropic.claude-v2", "us-east-1") shouldBe "us.anthropic.claude-v2"
+    BedrockModels.applyCrisPrefix("global.anthropic.claude-haiku-4-5", "us-east-1") shouldBe "global.anthropic.claude-haiku-4-5"
   }
 
   test("applyCrisPrefix skips non-CRIS providers") {
