@@ -70,7 +70,7 @@ object AssistantTools {
       "Get the source text of the Isabelle command at the cursor position.",
       Nil),
     ToolDef("get_errors",
-      "Get error messages from PIDE. By default returns all errors in the current buffer with line numbers. Use scope='cursor' to get only errors at cursor position.",
+      "Get error messages from PIDE's processed region. IMPORTANT: Only returns errors from the already-processed portion of the theory. To check if a file is completely error-free, first use set_cursor_position to move to the end of the file, then call get_errors. By default returns all errors in the current buffer with line numbers. Use scope='cursor' to get only errors at cursor position.",
       List(
         ToolParam("scope", "string", "Scope: 'all' (default, all errors in current buffer), 'cursor' (only at cursor position), or a theory name")
       )),
@@ -107,7 +107,7 @@ object AssistantTools {
         ToolParam("theory", "string", "Theory name", required = true)
       )),
     ToolDef("get_warnings",
-      "Get warning messages from PIDE. By default returns all warnings in the current buffer with line numbers. Use scope='cursor' to get only warnings at cursor position.",
+      "Get warning messages from PIDE's processed region. IMPORTANT: Only returns warnings from the already-processed portion of the theory. To check if a file is completely warning-free, first use set_cursor_position to move to the end of the file, then call get_warnings. By default returns all warnings in the current buffer with line numbers. Use scope='cursor' to get only warnings at cursor position.",
       List(
         ToolParam("scope", "string", "Scope: 'all' (default, all warnings in current buffer), 'cursor' (only at cursor position), or a theory name")
       )),
@@ -551,7 +551,7 @@ object AssistantTools {
         GUI_Thread.later {
           try {
             val buffer = view.getBuffer
-            extractMessagesInBuffer(buffer, Markup.Elements(Markup.ERROR_MESSAGE, Markup.ERROR)).foreach(e => result = e)
+            extractMessagesInBuffer(buffer, isError = true).foreach(e => result = e)
           } catch { case _: Exception => }
           latch.countDown()
         }
@@ -568,8 +568,10 @@ object AssistantTools {
             @volatile var result = s"No errors in theory '$effectiveScope'."
             GUI_Thread.later {
               try {
-                extractMessagesInBuffer(buffer, Markup.Elements(Markup.ERROR_MESSAGE, Markup.ERROR)).foreach(e => result = e)
-              } catch { case _: Exception => }
+                extractMessagesInBuffer(buffer, isError = true).foreach(e => result = e)
+              } catch { case ex: Exception =>
+                Output.warning(s"[Assistant] execGetErrors failed: ${ex.getMessage}")
+              }
               latch.countDown()
             }
             latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
@@ -797,7 +799,7 @@ object AssistantTools {
         GUI_Thread.later {
           try {
             val buffer = view.getBuffer
-            extractMessagesInBuffer(buffer, Markup.Elements(Markup.WARNING_MESSAGE, Markup.WARNING, Markup.LEGACY)).foreach(w => result = w)
+            extractMessagesInBuffer(buffer, isError = false).foreach(w => result = w)
           } catch { case _: Exception => }
           latch.countDown()
         }
@@ -814,8 +816,10 @@ object AssistantTools {
             @volatile var result = s"No warnings in theory '$effectiveScope'."
             GUI_Thread.later {
               try {
-                extractMessagesInBuffer(buffer, Markup.Elements(Markup.WARNING_MESSAGE, Markup.WARNING, Markup.LEGACY)).foreach(w => result = w)
-              } catch { case _: Exception => }
+                extractMessagesInBuffer(buffer, isError = false).foreach(w => result = w)
+              } catch { case ex: Exception =>
+                Output.warning(s"[Assistant] execGetWarnings failed: ${ex.getMessage}")
+              }
               latch.countDown()
             }
             latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
@@ -1106,38 +1110,34 @@ object AssistantTools {
 
   /**
    * Extract messages (errors or warnings) from an entire buffer with line numbers.
-   * Shared helper for full-buffer error/warning scanning.
+   * Uses Isabelle's canonical Rendering.text_messages() API to retrieve messages from Command.State.results.
    */
-  private def extractMessagesInBuffer(buffer: org.gjt.sp.jedit.buffer.JEditBuffer, markupElements: Markup.Elements): Option[String] = {
+  private def extractMessagesInBuffer(buffer: org.gjt.sp.jedit.buffer.JEditBuffer, isError: Boolean): Option[String] = {
     try {
       Document_Model.get_model(buffer).flatMap { model =>
         val snapshot = Document_Model.snapshot(model)
         val range = Text.Range(0, buffer.getLength)
-        val messagesWithOffset = scala.collection.mutable.ListBuffer[(Int, String)]()
         
-        snapshot.cumulate(range, (), markupElements, _ => {
-          case (_, Text.Info(r, XML.Elem(Markup(name, _), body))) 
-              if name == Markup.ERROR_MESSAGE || name == Markup.ERROR || 
-                 name == Markup.WARNING_MESSAGE || name == Markup.WARNING || 
-                 name == Markup.LEGACY =>
-            val message = XML.content(body).trim
-            if (message.nonEmpty) {
-              messagesWithOffset += ((r.start, message))
-            }
-            Some(())
-          case _ => None
-        })
+        val filter: XML.Elem => Boolean = 
+          if (isError) Protocol.is_error
+          else elem => Protocol.is_warning(elem) || Protocol.is_legacy(elem)
         
-        if (messagesWithOffset.nonEmpty) {
-          val withLines = messagesWithOffset.map { case (offset, msg) =>
+        val messages = Rendering.text_messages(snapshot, range, filter)
+        
+        if (messages.nonEmpty) {
+          val withLines = messages.map { case Text.Info(msgRange, elem) =>
+            val offset = msgRange.start
             val line = buffer.getLineOfOffset(offset) + 1
-            s"Line $line: $msg"
+            val text = XML.content(elem)
+            s"Line $line: $text"
           }.distinct
           Some(withLines.mkString("\n"))
         } else None
       }
     } catch {
-      case _: Exception => None
+      case ex: Exception =>
+        Output.warning(s"[Assistant] extractMessagesInBuffer failed: ${ex.getClass.getSimpleName}: ${ex.getMessage}")
+        None
     }
   }
 
