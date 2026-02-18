@@ -203,9 +203,48 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
 
   private def createControlElements(): (JLabel, JButton, JButton) = {
     val status = new JLabel(AssistantConstants.STATUS_READY)
+    
+    // Style Cancel button
     val cancel = new JButton("Cancel")
     cancel.setVisible(false)
+    cancel.setFocusPainted(false)
+    cancel.setFont(cancel.getFont.deriveFont(11f))
+    cancel.setBorder(BorderFactory.createCompoundBorder(
+      BorderFactory.createLineBorder(java.awt.Color.decode(UIColors.TopButton.border), 1, true),
+      BorderFactory.createEmptyBorder(2, 8, 2, 8)
+    ))
+    cancel.setBackground(java.awt.Color.decode(UIColors.TopButton.background))
+    cancel.setForeground(javax.swing.UIManager.getColor("Button.foreground"))
+    cancel.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR))
+    cancel.addMouseListener(new java.awt.event.MouseAdapter {
+      override def mouseEntered(e: java.awt.event.MouseEvent): Unit = {
+        cancel.setBackground(java.awt.Color.decode(UIColors.TopButton.hoverBackground))
+      }
+      override def mouseExited(e: java.awt.event.MouseEvent): Unit = {
+        cancel.setBackground(java.awt.Color.decode(UIColors.TopButton.background))
+      }
+    })
+    
+    // Style Clear button
     val clear = new JButton("Clear")
+    clear.setFocusPainted(false)
+    clear.setFont(clear.getFont.deriveFont(11f))
+    clear.setBorder(BorderFactory.createCompoundBorder(
+      BorderFactory.createLineBorder(java.awt.Color.decode(UIColors.TopButton.border), 1, true),
+      BorderFactory.createEmptyBorder(2, 8, 2, 8)
+    ))
+    clear.setBackground(java.awt.Color.decode(UIColors.TopButton.background))
+    clear.setForeground(javax.swing.UIManager.getColor("Button.foreground"))
+    clear.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR))
+    clear.addMouseListener(new java.awt.event.MouseAdapter {
+      override def mouseEntered(e: java.awt.event.MouseEvent): Unit = {
+        clear.setBackground(java.awt.Color.decode(UIColors.TopButton.hoverBackground))
+      }
+      override def mouseExited(e: java.awt.event.MouseEvent): Unit = {
+        clear.setBackground(java.awt.Color.decode(UIColors.TopButton.background))
+      }
+    })
+    
     (status, cancel, clear)
   }
 
@@ -480,8 +519,23 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
     if (canIncrement) {
       val newMessages = history.drop(renderedMessageCount)
       val newHtml = newMessages.map { msg =>
-        if (msg.role == "user") createUserMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp))
-        else createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+        msg.role match {
+          case "user" => createUserMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp))
+          case "tool" =>
+            // Parse tool message content: "toolName|||{json params}"
+            val parts = msg.content.split("\\|\\|\\|", 2)
+            if (parts.length == 2) {
+              try {
+                val toolName = parts(0)
+                val paramsJson = parts(1)
+                val params = parseToolParams(paramsJson)
+                createToolMessageHtml(toolName, params, ChatAction.formatTime(msg.timestamp))
+              } catch {
+                case _: Exception => createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+              }
+            } else createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+          case _ => createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+        }
       }.mkString
       
       val doc = htmlPane.getDocument.asInstanceOf[javax.swing.text.html.HTMLDocument]
@@ -512,8 +566,22 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
 
   private def fullRender(history: List[ChatAction.Message], welcome: String): Unit = {
     val htmlContent = history.map { msg =>
-      if (msg.role == "user") createUserMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp))
-      else createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+      msg.role match {
+        case "user" => createUserMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp))
+        case "tool" =>
+          val parts = msg.content.split("\\|\\|\\|", 2)
+          if (parts.length == 2) {
+            try {
+              val toolName = parts(0)
+              val paramsJson = parts(1)
+              val params = parseToolParams(paramsJson)
+              createToolMessageHtml(toolName, params, ChatAction.formatTime(msg.timestamp))
+            } catch {
+              case _: Exception => createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+            }
+          } else createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+        case _ => createAssistantMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp), msg.rawHtml)
+      }
     }.mkString
     
     val fullHtml = s"""<html><head><style>
@@ -534,15 +602,37 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
       val elapsed = (System.currentTimeMillis() - AssistantDockable._busyStartTime) / 1000
       if (elapsed >= 2) s"$status (${elapsed}s)" else status
     } else status
-    statusLabel.setText(displayStatus)
+    
+    // Add colored dot indicator based on status
+    val (dot, color) = if (status.startsWith("Error") || status.startsWith("[FAIL]")) {
+      ("●", UIColors.StatusDot.error)
+    } else if (status == AssistantConstants.STATUS_READY || status == AssistantConstants.STATUS_CANCELLED) {
+      ("●", UIColors.StatusDot.ready)
+    } else {
+      ("●", UIColors.StatusDot.busy)
+    }
+    
+    // Create HTML with colored dot
+    val htmlStatus = s"<html><span style='color:$color;'>$dot</span> $displayStatus</html>"
+    statusLabel.setText(htmlStatus)
     cancelButton.setVisible(AssistantDockable._busy)
   }
 
   def updateAssistantStatus(): Unit = {
     val buffer = view.getBuffer
     val status = AssistantSupport.getStatus(buffer)
-    iqStatusLabel.setBackground(AssistantSupport.statusColor(status))
-    iqStatusLabel.setForeground(Color.WHITE)
+    // Use modern light-tinted badge style instead of solid color blocks
+    val (bgColor, textColor, borderColor) = status match {
+      case AssistantSupport.FullSupport => (UIColors.Badge.successBackground, UIColors.Badge.successText, UIColors.Badge.successBorder)
+      case AssistantSupport.PartialSupport => (UIColors.Badge.warningBackground, UIColors.Badge.warningText, UIColors.Badge.warningBorder)
+      case AssistantSupport.NoSupport => (UIColors.Badge.neutralBackground, UIColors.Badge.neutralText, UIColors.Badge.neutralBorder)
+    }
+    iqStatusLabel.setBackground(Color.decode(bgColor))
+    iqStatusLabel.setForeground(Color.decode(textColor))
+    iqStatusLabel.setBorder(BorderFactory.createCompoundBorder(
+      BorderFactory.createLineBorder(Color.decode(borderColor), 1, true),
+      BorderFactory.createEmptyBorder(3, 8, 3, 8)
+    ))
     iqStatusLabel.setText(AssistantSupport.statusText(status))
   }
 
@@ -556,20 +646,26 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
 
   def updateModelLabel(): Unit = {
     val modelId = AssistantOptions.getModelId
-    val name = if (modelId.nonEmpty) {
+    val (display, tooltip) = if (modelId.nonEmpty) {
       // Strip CRIS prefix (us./eu./ap.) and provider prefix, show the model name portion
       val stripped = if (modelId.matches("^(us|eu|ap)\\..*")) modelId.dropWhile(_ != '.').drop(1) else modelId
       val afterProvider = if (stripped.contains(".")) stripped.substring(stripped.indexOf('.') + 1) else stripped
-      afterProvider.take(30)
-    } else "No model"
-    modelLabel.setText(name)
-    modelLabel.setToolTipText(if (modelId.nonEmpty) s"Model: $modelId" else "No model configured — use :set model <id>")
+      val shortName = afterProvider.take(30)
+      (s"<html><span style='color:#888;font-size:10pt;'>Model:</span> <b style='font-size:10pt;'>$shortName</b></html>", s"Model: $modelId")
+    } else {
+      ("<html><span style='color:#888;font-size:10pt;'>Model:</span> <b style='font-size:10pt;color:#c62828;'>Not configured</b></html>", "No model configured — use :set model <id>")
+    }
+    modelLabel.setText(display)
+    modelLabel.setToolTipText(tooltip)
   }
 
   private def createUserMessageHtml(content: String, timestamp: String): String = {
     val border = UIColors.ChatBubble.userBorder
     val tsColor = UIColors.ChatBubble.userTimestamp
-    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+    val copyColor = UIColors.CopyButton.color
+    val encodedContent = java.net.URLEncoder.encode(content, "UTF-8")
+    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);position:relative;'>
+       |<a href='action:copy:$encodedContent' style='position:absolute;top:6px;right:8px;text-decoration:none;color:$copyColor;opacity:0.6;font-size:10pt;font-weight:normal;' onmouseover='this.style.opacity="1.0"' onmouseout='this.style.opacity="0.6"' title='Copy message'>Copy</a>
        |<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>You</b> · $timestamp</div>
        |<div>${MarkdownRenderer.toBodyHtml(content)}</div>
        |</div>""".stripMargin
@@ -593,10 +689,71 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
     } else {
       (UIColors.ChatBubble.assistantBorder, UIColors.ChatBubble.assistantTimestamp)
     }
-    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+    val copyColor = UIColors.CopyButton.color
+    val encodedContent = java.net.URLEncoder.encode(content, "UTF-8")
+    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);position:relative;'>
+       |<a href='action:copy:$encodedContent' style='position:absolute;top:6px;right:8px;text-decoration:none;color:$copyColor;opacity:0.6;font-size:10pt;font-weight:normal;' onmouseover='this.style.opacity="1.0"' onmouseout='this.style.opacity="0.6"' title='Copy message'>Copy</a>
        |<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>Assistant</b> · $timestamp</div>
        |<div>$body</div>
        |</div>""".stripMargin
+  }
+
+  /** Create HTML for a tool-use message. Parameters shown inline only, no redundant expandable section. */
+  private def createToolMessageHtml(toolName: String, params: Map[String, Any], timestamp: String): String = {
+    val border = UIColors.ToolMessage.border
+    val tsColor = UIColors.ToolMessage.timestamp
+    
+    // Convert snake_case to PascalCase for display
+    val displayName = toolName.split("_").map(_.capitalize).mkString
+    
+    // Format parameters for summary line (don't truncate - show full values inline)
+    val paramSummary = if (params.isEmpty) "()" else {
+      val formatted = params.map { case (k, v) =>
+        s"$k: ${escapeHtml(v.toString)}"
+      }.mkString(", ")
+      s"($formatted)"
+    }
+    
+    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+       |<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>Tool</b> · $timestamp</div>
+       |<div style='font-family:${MarkdownRenderer.codeFont};font-size:11pt;'><b>$displayName</b><span style='color:#888;font-weight:normal;'>$paramSummary</span></div>
+       |</div>""".stripMargin
+  }
+  
+  private def escapeHtml(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+  /** Parse JSON parameters from tool message content. Simple parser for Map[String, Any]. */
+  private def parseToolParams(json: String): Map[String, Any] = {
+    try {
+      val trimmed = json.trim
+      if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return Map.empty
+      
+      val content = trimmed.substring(1, trimmed.length - 1).trim
+      if (content.isEmpty) return Map.empty
+      
+      // Simple JSON parser for string/number/boolean values
+      val params = scala.collection.mutable.Map[String, Any]()
+      val keyValuePattern = """"([^"]+)"\s*:\s*(.+?)(?:,|$)""".r
+      
+      for (m <- keyValuePattern.findAllMatchIn(content)) {
+        val key = m.group(1)
+        val rawValue = m.group(2).trim
+        val value: Any = if (rawValue.startsWith("\"") && rawValue.endsWith("\"")) {
+          rawValue.substring(1, rawValue.length - 1)
+        } else if (rawValue == "true" || rawValue == "false") {
+          rawValue.toBoolean
+        } else {
+          try { rawValue.toInt } catch { case _: Exception =>
+            try { rawValue.toDouble } catch { case _: Exception => rawValue }
+          }
+        }
+        params(key) = value
+      }
+      params.toMap
+    } catch {
+      case _: Exception => Map.empty
+    }
   }
 
   private def createWelcomeHtml(): String = {

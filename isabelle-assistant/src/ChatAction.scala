@@ -547,6 +547,25 @@ object ChatAction {
     AssistantDockable.showConversation(getHistory)
   }
 
+  /** Add a tool-use message showing which tool is being called with what parameters.
+    * Format: "toolName|||{json params}" - transient so it doesn't get sent to LLM. */
+  def addToolMessage(toolName: String, params: Map[String, Any]): Unit = {
+    // Simple JSON serialization for display purposes
+    val jsonParams = params.map { case (k, v) =>
+      val valueStr = v match {
+        case s: String => s""""${s.replace("\"", "\\\"")}""""
+        case n: Number => n.toString
+        case b: Boolean => b.toString
+        case other => s""""${other.toString.replace("\"", "\\\"")}""""
+      }
+      s""""$k": $valueStr"""
+    }.mkString("{", ", ", "}")
+    
+    val content = s"$toolName|||$jsonParams"
+    addMessage(Message("tool", content, LocalDateTime.now(), transient = true))
+    AssistantDockable.showConversation(getHistory)
+  }
+
   private def getContext(view: View): String = {
     val textArea = view.getTextArea
     val selected = Option(textArea.getSelectedText).filter(_.trim.nonEmpty)
