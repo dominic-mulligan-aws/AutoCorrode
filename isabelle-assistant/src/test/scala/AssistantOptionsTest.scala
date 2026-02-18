@@ -83,4 +83,27 @@ class AssistantOptionsTest extends AnyFunSuite with Matchers {
     overridden.verifySuggestions shouldBe false
     overridden.useSledgehammer shouldBe true
   }
+
+  test("parseSnapshot should default maxToolIterations to None (unlimited)") {
+    val defaults = parse()
+    defaults.maxToolIterations shouldBe None
+  }
+
+  test("parseSnapshot should parse valid maxToolIterations values") {
+    val withLimit = parse(Map("assistant.max.tool.iterations" -> "25"))
+    withLimit.maxToolIterations shouldBe Some(25)
+  }
+
+  test("parseSnapshot should treat empty/0/none/unlimited as unlimited") {
+    parse(Map("assistant.max.tool.iterations" -> "")).maxToolIterations shouldBe None
+    parse(Map("assistant.max.tool.iterations" -> "0")).maxToolIterations shouldBe None
+    parse(Map("assistant.max.tool.iterations" -> "none")).maxToolIterations shouldBe None
+    parse(Map("assistant.max.tool.iterations" -> "unlimited")).maxToolIterations shouldBe None
+    parse(Map("assistant.max.tool.iterations" -> "UNLIMITED")).maxToolIterations shouldBe None
+  }
+
+  test("parseSnapshot should clamp maxToolIterations to valid range") {
+    parse(Map("assistant.max.tool.iterations" -> "100")).maxToolIterations shouldBe None
+    parse(Map("assistant.max.tool.iterations" -> "-5")).maxToolIterations shouldBe None
+  }
 }
