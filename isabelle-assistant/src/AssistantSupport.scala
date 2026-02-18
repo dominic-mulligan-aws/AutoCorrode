@@ -59,11 +59,11 @@ object AssistantSupport {
     """imports "Isabelle_Assistant.Assistant_Support" (* or: imports "$ISABELLE_ASSISTANT_HOME/Assistant_Support" *)"""
   
   def statusText(status: Status): String = status match {
-    case FullSupport => "Assistant [ok]"
+    case FullSupport => "Ready"
     case PartialSupport =>
-      if (!IQAvailable.isAvailable) "Assistant (no I/Q)"
-      else "Assistant: Partial"
-    case NoSupport => "Assistant (LLM only)"
+      if (!IQAvailable.isAvailable) "No I/Q"
+      else "Partial"
+    case NoSupport => "LLM Only"
   }
   
   def statusColor(status: Status): java.awt.Color = status match {

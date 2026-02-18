@@ -93,8 +93,10 @@ object MarkdownRenderer {
     val codeBorder = UIColors.CodeBlock.border
     val actionBg = UIColors.CodeBlock.actionBackground
     val actionBorder = UIColors.CodeBlock.actionBorder
-    val actionLinkBg = UIColors.CodeBlock.actionLinkBackground
-    val linkColor = UIColors.linkColor
+    val btnBg = UIColors.CodeButton.background
+    val btnHover = UIColors.CodeButton.hoverBackground
+    val btnBorder = UIColors.CodeButton.border
+    val btnText = UIColors.CodeButton.text
     
     sb.append(s"<div style='margin:4px 0 6px;border:1px solid $codeBorder;border-radius:4px;overflow:hidden;'>")
     // Code area — clicking inserts
@@ -103,10 +105,18 @@ object MarkdownRenderer {
     sb.append("padding:8px 10px;margin:0;border:none;white-space:pre;overflow-x:auto;cursor:pointer;line-height:1.4;'>")
     sb.append(escapedCode)
     sb.append("</pre></a>")
-    // Action bar — flush with code, no extra border
-    sb.append(s"<div style='padding:4px 10px;background:$actionBg;border-top:1px solid $actionBorder;font-size:10pt;'>")
-    sb.append(s"<a href='action:insert:$id' style='color:$linkColor;text-decoration:none;padding:2px 8px;background:$actionLinkBg;border-radius:8px;'>[Insert]</a>")
-    sb.append(s"  <a href='action:copy:$encodedForUrl' style='color:$linkColor;text-decoration:none;padding:2px 8px;background:$actionLinkBg;border-radius:8px;'>[Copy]</a>")
+    // Action bar with styled buttons
+    sb.append(s"<div style='padding:6px 10px;background:$actionBg;border-top:1px solid $actionBorder;font-size:10pt;'>")
+    // Insert button
+    sb.append(s"<a href='action:insert:$id' style='display:inline-block;text-decoration:none;")
+    sb.append(s"padding:4px 12px;margin-right:10px;background:$btnBg;color:$btnText;")
+    sb.append(s"border:1px solid $btnBorder;border-radius:4px;font-weight:500;font-size:10pt;")
+    sb.append("'>Insert</a>&nbsp;")
+    // Copy button (explicit non-breaking space before for guaranteed separation)
+    sb.append(s"<a href='action:copy:$encodedForUrl' style='display:inline-block;text-decoration:none;")
+    sb.append(s"padding:4px 12px;background:$btnBg;color:$btnText;")
+    sb.append(s"border:1px solid $btnBorder;border-radius:4px;font-weight:500;font-size:10pt;")
+    sb.append("'>Copy</a>")
     sb.append("</div></div>")
   }
 

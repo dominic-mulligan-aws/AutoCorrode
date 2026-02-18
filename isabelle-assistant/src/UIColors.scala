@@ -83,4 +83,74 @@ object UIColors {
     def border: String = ThemeUtils.themedHex("#555", "#d0d0d0")
     def headerBackground: String = ThemeUtils.themedHex("#3a3a3a", "#f0f0f0")
   }
+  
+  // Tool message colors (for tool-use display in chat)
+  object ToolMessage {
+    def background: String = ThemeUtils.themedHex("#203a3a", "#e0f2f1")
+    def border: String = ThemeUtils.themedHex("#00897b", "#00897b")
+    def timestamp: String = ThemeUtils.themedHex("#a0a8b0", "#5f6368")
+    def parameterBackground: String = ThemeUtils.themedHex("#2a4040", "#f0f8f7")
+    def parameterBorder: String = ThemeUtils.themedHex("#00695c", "#b2dfdb")
+  }
+  
+  // Copy button colors (subtle icon next to messages)
+  object CopyButton {
+    def color: String = ThemeUtils.themedHex("#888888", "#999999")
+    def hoverColor: String = ThemeUtils.themedHex("#b0b0b0", "#666666")
+  }
+  
+  // Enhanced button styling for Insert/Copy in code blocks
+  object CodeButton {
+    def background: String = ThemeUtils.themedHex("#404040", "#e8eaed")
+    def hoverBackground: String = ThemeUtils.themedHex("#505050", "#d8dadd")
+    def border: String = ThemeUtils.themedHex("#555555", "#dadce0")
+    def text: String = ThemeUtils.themedHex("#d0d0d0", "#3c4043")
+  }
+  
+  // Status indicator colors (for colored dots)
+  object StatusDot {
+    def ready: String = ThemeUtils.themedHex("#81c784", "#4caf50")
+    def busy: String = ThemeUtils.themedHex("#ffb74d", "#ff9800")
+    def error: String = ThemeUtils.themedHex("#e57373", "#f44336")
+  }
+  
+  // Top panel button styling
+  object TopButton {
+    def background: String = ThemeUtils.themedHex("#3a3a3a", "#f0f0f0")
+    def hoverBackground: String = ThemeUtils.themedHex("#4a4a4a", "#e0e0e0")
+    def border: String = ThemeUtils.themedHex("#555555", "#cccccc")
+  }
+  
+  // Light-tinted badge styling (modern approach: light bg + colored text + thin border)
+  object Badge {
+    // Success/verified
+    def successBackground: String = ThemeUtils.themedHex("#1b3a1f", "#e8f5e9")
+    def successText: String = ThemeUtils.themedHex("#81c784", "#2e7d32")
+    def successBorder: String = ThemeUtils.themedHex("#4caf50", "#81c784")
+    
+    // Error/failed
+    def errorBackground: String = ThemeUtils.themedHex("#3a1a1a", "#ffebee")
+    def errorText: String = ThemeUtils.themedHex("#e57373", "#c62828")
+    def errorBorder: String = ThemeUtils.themedHex("#f44336", "#ef9a9a")
+    
+    // Warning/unverified
+    def warningBackground: String = ThemeUtils.themedHex("#3a2a10", "#fff8e1")
+    def warningText: String = ThemeUtils.themedHex("#ffb74d", "#f57f17")
+    def warningBorder: String = ThemeUtils.themedHex("#ff9800", "#ffb74d")
+    
+    // Info/sledgehammer
+    def infoBackground: String = ThemeUtils.themedHex("#1a2a3a", "#e3f2fd")
+    def infoText: String = ThemeUtils.themedHex("#64b5f6", "#1565c0")
+    def infoBorder: String = ThemeUtils.themedHex("#2196f3", "#64b5f6")
+    
+    // Neutral/verifying
+    def neutralBackground: String = ThemeUtils.themedHex("#2a2a2a", "#f5f5f5")
+    def neutralText: String = ThemeUtils.themedHex("#bdbdbd", "#616161")
+    def neutralBorder: String = ThemeUtils.themedHex("#9e9e9e", "#bdbdbd")
+    
+    // Accent/eisbach missing
+    def accentBackground: String = ThemeUtils.themedHex("#3a2010", "#fbe9e7")
+    def accentText: String = ThemeUtils.themedHex("#ff8a65", "#d84315")
+    def accentBorder: String = ThemeUtils.themedHex("#ff5722", "#ff8a65")
+  }
 }
