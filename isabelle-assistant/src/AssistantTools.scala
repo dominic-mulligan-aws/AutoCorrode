@@ -70,8 +70,10 @@ object AssistantTools {
       "Get the source text of the Isabelle command at the cursor position.",
       Nil),
     ToolDef("get_errors",
-      "Get error messages at the cursor position from PIDE. Returns error text if any errors are present.",
-      Nil),
+      "Get error messages from PIDE. By default returns all errors in the current buffer with line numbers. Use scope='cursor' to get only errors at cursor position.",
+      List(
+        ToolParam("scope", "string", "Scope: 'all' (default, all errors in current buffer), 'cursor' (only at cursor position), or a theory name")
+      )),
     ToolDef("get_definitions",
       "Get definitions for specified constant or type names. Returns the definition text for each name. Requires I/Q plugin.",
       List(
@@ -105,8 +107,10 @@ object AssistantTools {
         ToolParam("theory", "string", "Theory name", required = true)
       )),
     ToolDef("get_warnings",
-      "Get warning messages at the cursor position from PIDE. Returns warning text if any warnings are present.",
-      Nil),
+      "Get warning messages from PIDE. By default returns all warnings in the current buffer with line numbers. Use scope='cursor' to get only warnings at cursor position.",
+      List(
+        ToolParam("scope", "string", "Scope: 'all' (default, all warnings in current buffer), 'cursor' (only at cursor position), or a theory name")
+      )),
     ToolDef("set_cursor_position",
       "Move the cursor to a specific line number in the current theory. This allows inspection of goals and context at different positions. Returns confirmation or error.",
       List(
@@ -226,7 +230,7 @@ object AssistantTools {
         case "run_quickcheck" => execRunQuickcheck(view)
         case "get_type" => execGetType(view)
         case "get_command_text" => execGetCommandText(view)
-        case "get_errors" => execGetErrors(view)
+        case "get_errors" => execGetErrors(args, view)
         case "get_definitions" => execGetDefinitions(args, view)
         case "execute_step" => execExecuteStep(args, view)
         case "trace_simplifier" => execTraceSimplifier(args, view)
@@ -234,7 +238,7 @@ object AssistantTools {
         case "get_context_info" => execGetContextInfo(view)
         case "search_all_theories" => execSearchAllTheories(args, view)
         case "get_dependencies" => execGetDependencies(args, view)
-        case "get_warnings" => execGetWarnings(view)
+        case "get_warnings" => execGetWarnings(args, view)
         case "set_cursor_position" => execSetCursorPosition(args, view)
         case "edit_theory" => execEditTheory(args, view)
         case "try_methods" => execTryMethods(args, view)
@@ -522,19 +526,55 @@ object AssistantTools {
     result
   }
 
-  private def execGetErrors(view: View): String = {
-    val latch = new CountDownLatch(1)
-    @volatile var result = "No errors at cursor position."
-    GUI_Thread.later {
-      try {
-        val buffer = view.getBuffer
-        val offset = view.getTextArea.getCaretPosition
-        ExplainErrorAction.extractErrorAtOffset(buffer, offset).foreach(e => result = e)
-      } catch { case _: Exception => }
-      latch.countDown()
+  private def execGetErrors(args: Map[String, Any], view: View): String = {
+    val scope = safeStringArg(args, "scope", 200).toLowerCase
+    val effectiveScope = if (scope.isEmpty) "all" else scope
+
+    effectiveScope match {
+      case "cursor" =>
+        val latch = new CountDownLatch(1)
+        @volatile var result = "No errors at cursor position."
+        GUI_Thread.later {
+          try {
+            val buffer = view.getBuffer
+            val offset = view.getTextArea.getCaretPosition
+            ExplainErrorAction.extractErrorAtOffset(buffer, offset).foreach(e => result = e)
+          } catch { case _: Exception => }
+          latch.countDown()
+        }
+        latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
+        result
+
+      case "all" =>
+        val latch = new CountDownLatch(1)
+        @volatile var result = "No errors in current buffer."
+        GUI_Thread.later {
+          try {
+            val buffer = view.getBuffer
+            extractMessagesInBuffer(buffer, Markup.Elements(Markup.ERROR_MESSAGE, Markup.ERROR)).foreach(e => result = e)
+          } catch { case _: Exception => }
+          latch.countDown()
+        }
+        latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
+        result
+
+      case theoryName =>
+        val normalized = if (theoryName.endsWith(".thy")) theoryName else s"$theoryName.thy"
+        findBuffer(normalized) match {
+          case None => s"Theory '$theoryName' not found in open buffers."
+          case Some(buffer) =>
+            val latch = new CountDownLatch(1)
+            @volatile var result = s"No errors in theory '$theoryName'."
+            GUI_Thread.later {
+              try {
+                extractMessagesInBuffer(buffer, Markup.Elements(Markup.ERROR_MESSAGE, Markup.ERROR)).foreach(e => result = e)
+              } catch { case _: Exception => }
+              latch.countDown()
+            }
+            latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
+            result
+        }
     }
-    latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
-    result
   }
 
   private def execGetDefinitions(args: Map[String, Any], view: View): String = {
@@ -731,19 +771,55 @@ object AssistantTools {
     }
   }
 
-  private def execGetWarnings(view: View): String = {
-    val latch = new CountDownLatch(1)
-    @volatile var result = "No warnings at cursor position."
-    GUI_Thread.later {
-      try {
-        val buffer = view.getBuffer
-        val offset = view.getTextArea.getCaretPosition
-        extractWarningsAtOffset(buffer, offset).foreach(w => result = w)
-      } catch { case _: Exception => }
-      latch.countDown()
+  private def execGetWarnings(args: Map[String, Any], view: View): String = {
+    val scope = safeStringArg(args, "scope", 200).toLowerCase
+    val effectiveScope = if (scope.isEmpty) "all" else scope
+
+    effectiveScope match {
+      case "cursor" =>
+        val latch = new CountDownLatch(1)
+        @volatile var result = "No warnings at cursor position."
+        GUI_Thread.later {
+          try {
+            val buffer = view.getBuffer
+            val offset = view.getTextArea.getCaretPosition
+            extractWarningsAtOffset(buffer, offset).foreach(w => result = w)
+          } catch { case _: Exception => }
+          latch.countDown()
+        }
+        latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
+        result
+
+      case "all" =>
+        val latch = new CountDownLatch(1)
+        @volatile var result = "No warnings in current buffer."
+        GUI_Thread.later {
+          try {
+            val buffer = view.getBuffer
+            extractMessagesInBuffer(buffer, Markup.Elements(Markup.WARNING_MESSAGE, Markup.WARNING, Markup.LEGACY)).foreach(w => result = w)
+          } catch { case _: Exception => }
+          latch.countDown()
+        }
+        latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
+        result
+
+      case theoryName =>
+        val normalized = if (theoryName.endsWith(".thy")) theoryName else s"$theoryName.thy"
+        findBuffer(normalized) match {
+          case None => s"Theory '$theoryName' not found in open buffers."
+          case Some(buffer) =>
+            val latch = new CountDownLatch(1)
+            @volatile var result = s"No warnings in theory '$theoryName'."
+            GUI_Thread.later {
+              try {
+                extractMessagesInBuffer(buffer, Markup.Elements(Markup.WARNING_MESSAGE, Markup.WARNING, Markup.LEGACY)).foreach(w => result = w)
+              } catch { case _: Exception => }
+              latch.countDown()
+            }
+            latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
+            result
+        }
     }
-    latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)
-    result
   }
 
   private def execSetCursorPosition(args: Map[String, Any], view: View): String = {
@@ -1026,6 +1102,43 @@ object AssistantTools {
       }
       latch.await(AssistantConstants.BUFFER_OPERATION_TIMEOUT_SEC, TimeUnit.SECONDS)
       result
+    }
+  }
+
+  /**
+   * Extract messages (errors or warnings) from an entire buffer with line numbers.
+   * Shared helper for full-buffer error/warning scanning.
+   */
+  private def extractMessagesInBuffer(buffer: org.gjt.sp.jedit.buffer.JEditBuffer, markupElements: Markup.Elements): Option[String] = {
+    try {
+      Document_Model.get_model(buffer).flatMap { model =>
+        val snapshot = Document_Model.snapshot(model)
+        val range = Text.Range(0, buffer.getLength)
+        val messagesWithOffset = scala.collection.mutable.ListBuffer[(Int, String)]()
+        
+        snapshot.cumulate(range, (), markupElements, _ => {
+          case (_, Text.Info(r, XML.Elem(Markup(name, _), body))) 
+              if name == Markup.ERROR_MESSAGE || name == Markup.ERROR || 
+                 name == Markup.WARNING_MESSAGE || name == Markup.WARNING || 
+                 name == Markup.LEGACY =>
+            val message = XML.content(body).trim
+            if (message.nonEmpty) {
+              messagesWithOffset += ((r.start, message))
+            }
+            Some(())
+          case _ => None
+        })
+        
+        if (messagesWithOffset.nonEmpty) {
+          val withLines = messagesWithOffset.map { case (offset, msg) =>
+            val line = buffer.getLineOfOffset(offset) + 1
+            s"Line $line: $msg"
+          }.distinct
+          Some(withLines.mkString("\n"))
+        } else None
+      }
+    } catch {
+      case _: Exception => None
     }
   }
 

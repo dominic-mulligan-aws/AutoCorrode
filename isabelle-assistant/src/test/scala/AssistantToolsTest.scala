@@ -84,10 +84,14 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     tool.get.params shouldBe empty
   }
 
-  test("get_errors should exist and require no params") {
+  test("get_errors should exist with optional scope param") {
     val tool = AssistantTools.tools.find(_.name == "get_errors")
     tool should not be empty
-    tool.get.params shouldBe empty
+    val params = tool.get.params
+    params.length shouldBe 1
+    params.head.name shouldBe "scope"
+    params.head.typ shouldBe "string"
+    params.head.required shouldBe false
   }
 
   test("get_definitions should exist and require names param") {
@@ -142,7 +146,7 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
   test("tools with no params should have empty param list not null") {
     val noParamTools = List("list_theories", "get_goal_state", "get_proof_context",
       "run_sledgehammer", "run_nitpick", "run_quickcheck", "get_type",
-      "get_command_text", "get_errors")
+      "get_command_text")
     for (toolName <- noParamTools) {
       val tool = AssistantTools.tools.find(_.name == toolName).get
       tool.params should not be null
@@ -207,7 +211,7 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
 
   test("tools not requiring I/Q should not mention it") {
     val nonIqTools = List("read_theory", "list_theories", "search_in_theory",
-      "get_goal_state", "get_type", "get_command_text", "get_errors")
+      "get_goal_state", "get_type", "get_command_text", "get_errors", "get_warnings")
     for (toolName <- nonIqTools) {
       val tool = AssistantTools.tools.find(_.name == toolName).get
       tool.description.toLowerCase should not include "i/q"
@@ -252,10 +256,14 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     required.length shouldBe 1
   }
 
-  test("get_warnings should exist and require no params") {
+  test("get_warnings should exist with optional scope param") {
     val tool = AssistantTools.tools.find(_.name == "get_warnings")
     tool should not be empty
-    tool.get.params shouldBe empty
+    val params = tool.get.params
+    params.length shouldBe 1
+    params.head.name shouldBe "scope"
+    params.head.typ shouldBe "string"
+    params.head.required shouldBe false
   }
 
   test("set_cursor_position should exist and require line param") {
@@ -268,9 +276,9 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     lineParam.typ shouldBe "integer"
   }
 
-  test("navigation tools should not require I/Q") {
+  test("navigation and diagnostic tools should not require I/Q") {
     val navTools = List("get_proof_block", "get_context_info", "search_all_theories",
-      "get_dependencies", "get_warnings", "set_cursor_position")
+      "get_dependencies", "get_warnings", "set_cursor_position", "get_errors")
     for (toolName <- navTools) {
       val tool = AssistantTools.tools.find(_.name == toolName).get
       tool.description.toLowerCase should not include "i/q"
