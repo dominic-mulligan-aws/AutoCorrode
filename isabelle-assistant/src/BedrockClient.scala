@@ -354,6 +354,9 @@ object BedrockClient {
     var iteration = 0
     var finalText = ""
     var continue = true
+    // Stuck-loop detection: track last 3 tool calls to detect repetitive behavior
+    val recentCalls = scala.collection.mutable.Queue[(String, Map[String, Any])]()
+    val LOOP_DETECTION_WINDOW = 3
 
     while (continue) {
       iteration += 1
@@ -395,6 +398,15 @@ object BedrockClient {
           val view = _currentView.getOrElse(throw new RuntimeException("No view available for tool execution"))
           val iterStr = maxIter.map(_.toString).getOrElse("∞")
           val resultBlocks = toolUses.map { tu =>
+            // Stuck-loop detection: check if we're repeating the same tool call
+            recentCalls.enqueue((tu.name, tu.input))
+            if (recentCalls.length > LOOP_DETECTION_WINDOW) recentCalls.dequeue()
+            if (recentCalls.length == LOOP_DETECTION_WINDOW && recentCalls.forall(_ == recentCalls.head)) {
+              val (name, args) = recentCalls.head
+              Output.warning(s"[Assistant] Detected stuck loop: $name called ${LOOP_DETECTION_WINDOW} times with same arguments")
+              throw new RuntimeException(s"Stuck in loop: tool '$name' called repeatedly with no progress. Try a different approach.")
+            }
+            
             Output.writeln(s"[Assistant] Tool use ($iteration/$iterStr): ${tu.name}")
             AssistantDockable.setStatus(s"[tool] ${tu.name} ($iteration/$iterStr)...")
             val result = AssistantTools.executeTool(tu.name, tu.input, view)

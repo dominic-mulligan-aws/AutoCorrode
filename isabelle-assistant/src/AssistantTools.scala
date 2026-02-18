@@ -1057,6 +1057,8 @@ object AssistantTools {
 
   private def intArg(args: Map[String, Any], key: String, default: Int): Int = {
     args.get(key) match {
+      case Some(d: Double) if !d.isWhole =>
+        throw new IllegalArgumentException(s"Parameter '$key' must be an integer, got decimal value: $d")
       case Some(n: Number) => n.intValue()
       case Some(s: String) => try { s.toInt } catch { case _: NumberFormatException => default }
       case _ => default

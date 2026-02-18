@@ -150,7 +150,13 @@ object ResponseParser {
             valueToken match {
               case JsonToken.VALUE_STRING => inputMap += (key -> parser.getValueAsString(""))
               case JsonToken.VALUE_NUMBER_INT => inputMap += (key -> parser.getIntValue)
-              case JsonToken.VALUE_NUMBER_FLOAT => inputMap += (key -> parser.getDoubleValue)
+              case JsonToken.VALUE_NUMBER_FLOAT =>
+                // Coerce whole-number floats (e.g., 188.0) to Int to prevent type confusion
+                val doubleVal = parser.getDoubleValue
+                if (doubleVal.isWhole && doubleVal >= Int.MinValue && doubleVal <= Int.MaxValue)
+                  inputMap += (key -> doubleVal.toInt)
+                else
+                  inputMap += (key -> doubleVal)
               case JsonToken.VALUE_TRUE => inputMap += (key -> true)
               case JsonToken.VALUE_FALSE => inputMap += (key -> false)
               case JsonToken.START_OBJECT | JsonToken.START_ARRAY =>
