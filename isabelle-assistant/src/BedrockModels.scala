@@ -79,8 +79,8 @@ object BedrockModels {
   }
 
   def applyCrisPrefix(modelId: String, region: String): String = {
-    // Don't add prefix if it already has one (e.g., us.anthropic.*, eu.anthropic.*, ap.anthropic.*)
-    if (modelId.startsWith("us.") || modelId.startsWith("eu.") || modelId.startsWith("ap.")) {
+    // Don't add prefix if it already has one (e.g., us.anthropic.*, eu.anthropic.*, ap.anthropic.*, global.anthropic.*)
+    if (modelId.startsWith("us.") || modelId.startsWith("eu.") || modelId.startsWith("ap.") || modelId.startsWith("global.")) {
       modelId
     } else {
       val provider = modelId.split("\\.").headOption.getOrElse("")
