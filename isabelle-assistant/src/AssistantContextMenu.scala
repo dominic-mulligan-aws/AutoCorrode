@@ -31,12 +31,14 @@ class AssistantContextMenu extends DynamicContextMenuService {
 
         // === Understanding ===
         val understandMenu = new JMenu("Understanding")
-        addItem(understandMenu, "Explain") { _ =>
-          val text = selection.filter(_.trim.nonEmpty)
-            .orElse(CommandExtractor.getCommandAtOffset(buffer, offset))
-          text match {
-            case Some(t) => ExplainAction.explain(view, t)
-            case None => AssistantDockable.respondInChat("No command at cursor.")
+        if (ctx.hasCommand || ctx.hasSelection) {
+          addItem(understandMenu, "Explain") { _ =>
+            val text = selection.filter(_.trim.nonEmpty)
+              .orElse(CommandExtractor.getCommandAtOffset(buffer, offset))
+            text match {
+              case Some(t) => ExplainAction.explain(view, t)
+              case None => AssistantDockable.respondInChat("No command at cursor.")
+            }
           }
         }
 
@@ -87,9 +89,11 @@ class AssistantContextMenu extends DynamicContextMenuService {
         }
 
         // === Search ===
-        addItem(menu, "Find Theorems") { _ =>
-          val pattern = selection.filter(_.trim.nonEmpty)
-          FindTheoremsAction.findTheorems(view, pattern)
+        if (ctx.iqAvailable) {
+          addItem(menu, "Find Theorems") { _ =>
+            val pattern = selection.filter(_.trim.nonEmpty)
+            FindTheoremsAction.findTheorems(view, pattern)
+          }
         }
 
         // === Generation ===
@@ -119,8 +123,10 @@ class AssistantContextMenu extends DynamicContextMenuService {
           }
         }
 
-          addItem(genMenu, "Suggest Name")(_ => SuggestNameAction.suggestName(view))
-          addItem(genMenu, "Tidy Up")(_ => TidyAction.tidy(view))
+          if (ctx.onDefinition)
+            addItem(genMenu, "Suggest Name")(_ => SuggestNameAction.suggestName(view))
+          if (ctx.hasSelection || ctx.inProof)
+            addItem(genMenu, "Tidy Up")(_ => TidyAction.tidy(view))
 
           if (ctx.hasSelection)
             addItem(genMenu, "Generate Tactic")(_ =>
@@ -130,7 +136,8 @@ class AssistantContextMenu extends DynamicContextMenuService {
         }
 
         // === Analysis ===
-        addItem(menu, "Analyze Patterns")(_ => AnalyzePatternsAction.analyze(view))
+        if (ctx.hasCommand)
+          addItem(menu, "Analyze Patterns")(_ => AnalyzePatternsAction.analyze(view))
 
         Array(menu)
       }
