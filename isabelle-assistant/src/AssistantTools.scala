@@ -117,7 +117,7 @@ object AssistantTools {
         ToolParam("line", "integer", "Line number to move cursor to (1-based)", required = true)
       )),
     ToolDef("edit_theory",
-      "Edit a theory file by inserting, replacing, or deleting text at specified line ranges. Use read_theory first to see current content. All edits are wrapped in compound edits for proper undo support.",
+      "Edit a theory file by inserting, replacing, or deleting text at specified line ranges. Use read_theory first to see current content. For multi-line inserts/replacements, include literal \\n characters in the text parameter. All edits are wrapped in compound edits for proper undo support.",
       List(
         ToolParam("theory", "string", "Theory name", required = true),
         ToolParam("operation", "string", "Operation: 'insert', 'replace', or 'delete'", required = true),
