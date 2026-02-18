@@ -499,24 +499,28 @@ object BedrockClient {
       case _ =>
     }
 
-    // Prepend auto-discovered system prompts
+    // Get auto-discovered system prompts
     val systemPrompt = PromptLoader.getSystemPrompt
-    val fullPrompt = if (systemPrompt.nonEmpty) s"$systemPrompt\n\n$prompt" else prompt
 
     // Validate prompt length (conservative limit: 200k chars ≈ 50k tokens for most models)
     val maxPromptChars = 200000
-    if (fullPrompt.length > maxPromptChars) {
+    val totalLength = systemPrompt.length + prompt.length
+    if (totalLength > maxPromptChars) {
       throw new IllegalArgumentException(
-        s"Prompt too long: ${fullPrompt.length} chars (limit: $maxPromptChars). " +
+        s"Prompt too long: $totalLength chars (limit: $maxPromptChars). " +
         "Try reducing context or simplifying the request.")
     }
 
     Output.writeln(s"[Assistant] Region: $region")
     Output.writeln(s"[Assistant] Model: $modelId")
     Output.writeln(s"[Assistant] Temperature: $temperature, Max tokens: $maxTokens")
-    Output.writeln(s"[Assistant] Prompt length: ${fullPrompt.length} chars")
+    Output.writeln(s"[Assistant] Prompt length: ${totalLength} chars (system: ${systemPrompt.length}, user: ${prompt.length})")
 
-    val payload = PayloadBuilder.buildPayload(modelId, fullPrompt, temperature, maxTokens)
+    // Use buildChatPayload when system prompt exists to ensure it's sent as a proper system field
+    val payload = if (systemPrompt.nonEmpty)
+      PayloadBuilder.buildChatPayload(modelId, systemPrompt, List(("user", prompt)), temperature, maxTokens)
+    else
+      PayloadBuilder.buildPayload(modelId, prompt, temperature, maxTokens)
 
     val request = InvokeModelRequest.builder()
       .modelId(modelId)
