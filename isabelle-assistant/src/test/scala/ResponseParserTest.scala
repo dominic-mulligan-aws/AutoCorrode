@@ -188,9 +188,33 @@ class ResponseParserTest extends AnyFunSuite with Matchers {
   }
 
   test("parseAnthropicContentBlocks should handle missing stop_reason") {
-    val json = """{"content":[{"type":"text","text":"No stop reason"}]}"""
-    val (blocks, stopReason) = ResponseParser.parseAnthropicContentBlocks(json)
-    blocks should have length 1
-    stopReason shouldBe ""
+    val json = """{"content":[{"type":"text","text":"hello"}]}"""
+    val (blocks, stop) = ResponseParser.parseAnthropicContentBlocks(json)
+    blocks.length shouldBe 1
+    stop shouldBe ""
+  }
+
+  test("parseAnthropicContentBlocks should coerce whole-number floats to Int") {
+    val json = """{"content":[{"type":"tool_use","id":"x","name":"test","input":{"line":188.0,"valid":25.0}}]}"""
+    val (blocks, _) = ResponseParser.parseAnthropicContentBlocks(json)
+    blocks.length shouldBe 1
+    blocks.head match {
+      case ResponseParser.ToolUseBlock(_, _, input) =>
+        input("line") shouldBe 188  // Int not Double
+        input("valid") shouldBe 25  // Int not Double
+      case _ => fail("Expected ToolUseBlock")
+    }
+  }
+
+  test("parseAnthropicContentBlocks should preserve actual decimal values") {
+    val json = """{"content":[{"type":"tool_use","id":"x","name":"test","input":{"temp":0.5,"ratio":3.14}}]}"""
+    val (blocks, _) = ResponseParser.parseAnthropicContentBlocks(json)
+    blocks.length shouldBe 1
+    blocks.head match {
+      case ResponseParser.ToolUseBlock(_, _, input) =>
+        input("temp") shouldBe 0.5  // Double preserved
+        input("ratio") shouldBe 3.14  // Double preserved
+      case _ => fail("Expected ToolUseBlock")
+    }
   }
 }
