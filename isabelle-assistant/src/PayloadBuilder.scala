@@ -122,14 +122,16 @@ object PayloadBuilder {
    * @param prompt The complete prompt text
    * @param temperature The sampling temperature (0.0-1.0)
    * @param maxTokens Maximum tokens to generate
+   * @param systemPrompt Optional system prompt (only used for Anthropic models)
    * @return JSON payload string
    */
-  def buildPayload(modelId: String, prompt: String, temperature: Double, maxTokens: Int): String = {
+  def buildPayload(modelId: String, prompt: String, temperature: Double, maxTokens: Int, systemPrompt: Option[String] = None): String = {
     if (isProvider(modelId, "anthropic")) {
       writeJson { g =>
         g.writeStringField("anthropic_version", "bedrock-2023-05-31")
         g.writeNumberField("max_tokens", maxTokens)
         g.writeNumberField("temperature", temperature)
+        systemPrompt.filter(_.nonEmpty).foreach(s => g.writeStringField("system", s))
         g.writeArrayFieldStart("messages")
         g.writeStartObject()
         g.writeStringField("role", "user")

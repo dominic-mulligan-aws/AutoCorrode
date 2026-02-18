@@ -74,6 +74,21 @@ class PayloadBuilderTest extends AnyFunSuite with Matchers {
     payload should include("messages")
     payload should include("Hello")
     payload should include("1000")
+    payload should not include "system"
+  }
+
+  test("buildPayload for Anthropic with system prompt should include system field") {
+    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello", 0.5, 1000, Some("You are helpful"))
+    payload should include("anthropic_version")
+    payload should include("system")
+    payload should include("You are helpful")
+    payload should include("messages")
+    payload should include("Hello")
+  }
+
+  test("buildPayload for Anthropic with empty system prompt should not include system field") {
+    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello", 0.5, 1000, Some(""))
+    payload should not include "system"
   }
 
   test("buildPayload for Meta Llama 3+ should use begin_of_text format") {
