@@ -22,7 +22,8 @@ When using Anthropic Claude models, you have access to tools that let you read t
 - **get_type**: Get type information for the term at cursor position
 
 **Error Analysis:**
-- **get_errors**: Get PIDE error messages at cursor position
+- **get_errors**: Get PIDE error messages. By default returns all errors in current buffer with line numbers. Use scope='cursor' for errors at cursor only, or specify a theory name.
+- **get_warnings**: Get warning messages from PIDE. By default returns all warnings in current buffer with line numbers. Use scope='cursor' for warnings at cursor only, or specify a theory name.
 
 **Definition Lookup:**
 - **get_definitions**: Get definitions for specified constant or type names (requires I/Q)
