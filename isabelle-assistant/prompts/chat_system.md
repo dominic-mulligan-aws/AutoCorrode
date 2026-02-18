@@ -44,7 +44,7 @@ When using Anthropic Claude models, you have access to tools that let you read t
 - **trace_simplifier**: Trace simplifier operations to understand rewriting (requires I/Q)
 
 **Theory Editing & Creation:**
-- **edit_theory**: Insert, replace, or delete text in theory files. Use read_theory first to see what you're editing.
+- **edit_theory**: Insert, replace, or delete text in theory files. Use read_theory first to see what you're editing. For multi-line text, include literal \n newline characters in your text parameter.
 - **create_theory**: Create new theory files with proper header and imports
 - **open_theory**: Open existing theory files that aren't currently open
 
