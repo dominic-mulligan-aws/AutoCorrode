@@ -63,8 +63,12 @@ class AssistantOptions extends AbstractOptionPane("assistant-options") {
     maxTokensField = new JTextField(AssistantOptions.getMaxTokens.toString, 10)
     addComponent("Max Tokens:", maxTokensField)
 
-    maxToolIterationsField = new JTextField(AssistantOptions.getMaxToolIterations.toString, 10)
-    maxToolIterationsField.setToolTipText("Maximum tool-use iterations per LLM call (Anthropic models)")
+    val toolIterText = AssistantOptions.getMaxToolIterations match {
+      case Some(n) => n.toString
+      case None => ""
+    }
+    maxToolIterationsField = new JTextField(toolIterText, 10)
+    maxToolIterationsField.setToolTipText("Maximum tool-use iterations per LLM call. Leave empty or set to 0 for unlimited.")
     addComponent("Max Tool Iterations:", maxToolIterationsField)
 
     addSeparator("Verification (I/Q Integration)")
@@ -209,7 +213,7 @@ object AssistantOptions {
     baseModelId: String,
     temperature: Double,
     maxTokens: Int,
-    maxToolIterations: Int,
+    maxToolIterations: Option[Int],
     maxRetries: Int,
     verifyTimeout: Long,
     sledgehammerTimeout: Long,
@@ -265,6 +269,14 @@ object AssistantOptions {
     def doubleProp(key: String, default: Double, min: Double, max: Double): Double =
       try { math.max(min, math.min(max, prop(key, default.toString).toDouble)) }
       catch { case _: NumberFormatException => default }
+    def optIntProp(key: String, min: Int, max: Int): Option[Int] = {
+      val value = prop(key, "").trim.toLowerCase
+      if (value.isEmpty || value == "0" || value == "none" || value == "unlimited") None
+      else try {
+        val n = value.toInt
+        if (n >= min && n <= max) Some(n) else None
+      } catch { case _: NumberFormatException => None }
+    }
 
     val region = prop("assistant.aws.region", "us-east-1")
     val modelId = prop("assistant.model.id", "")
@@ -274,7 +286,7 @@ object AssistantOptions {
       baseModelId = if (modelId.matches("^[a-zA-Z0-9._:/-]*$")) modelId else "",
       temperature = doubleProp("assistant.temperature", AssistantConstants.DEFAULT_TEMPERATURE, AssistantConstants.MIN_TEMPERATURE, AssistantConstants.MAX_TEMPERATURE),
       maxTokens = intProp("assistant.max.tokens", AssistantConstants.DEFAULT_MAX_TOKENS, AssistantConstants.MIN_MAX_TOKENS, AssistantConstants.MAX_MAX_TOKENS),
-      maxToolIterations = intProp("assistant.max.tool.iterations", AssistantConstants.DEFAULT_MAX_TOOL_ITERATIONS, 1, 50),
+      maxToolIterations = optIntProp("assistant.max.tool.iterations", 1, 50),
       maxRetries = intProp("assistant.verify.max.retries", AssistantConstants.DEFAULT_MAX_VERIFICATION_RETRIES, 1, 10),
       verifyTimeout = longProp("assistant.verify.timeout", AssistantConstants.DEFAULT_VERIFICATION_TIMEOUT, 5000L, 300000L),
       sledgehammerTimeout = longProp("assistant.sledgehammer.timeout", AssistantConstants.DEFAULT_SLEDGEHAMMER_TIMEOUT, 1000L, 300000L),
@@ -304,7 +316,7 @@ object AssistantOptions {
   def getBaseModelId: String = snapshot.baseModelId
   def getTemperature: Double = snapshot.temperature
   def getMaxTokens: Int = snapshot.maxTokens
-  def getMaxToolIterations: Int = snapshot.maxToolIterations
+  def getMaxToolIterations: Option[Int] = snapshot.maxToolIterations
   def getMaxVerificationRetries: Int = snapshot.maxRetries
   def getVerificationTimeout: Long = snapshot.verifyTimeout
   def getSledgehammerTimeout: Long = snapshot.sledgehammerTimeout
@@ -387,6 +399,25 @@ object AssistantOptions {
       } catch { case _: NumberFormatException => Some(s"$key must be a number") }
   }
 
+  private case class OptionalIntSetting(key: String, prop: String, min: Int, max: Int,
+                                        getter: SettingsSnapshot => Option[Int]) extends SettingDef {
+    def get(s: SettingsSnapshot): String = getter(s) match {
+      case Some(n) => n.toString
+      case None => "unlimited"
+    }
+    def set(value: String): Option[String] = {
+      val normalized = value.trim.toLowerCase
+      if (normalized.isEmpty || normalized == "0" || normalized == "none" || normalized == "unlimited") {
+        jEdit.setProperty(prop, "")
+        Some(s"$key = unlimited")
+      } else try {
+        val v = value.toInt
+        if (v >= min && v <= max) { jEdit.setProperty(prop, value); Some(s"$key = $value") }
+        else Some(s"$key must be between $min and $max, or 0/none/unlimited for no limit")
+      } catch { case _: NumberFormatException => Some(s"$key must be a number or 0/none/unlimited") }
+    }
+  }
+
   /** Registry of all settings — single source of truth for get/set/list. */
   private val settingDefs: List[SettingDef] = List(
     StringSetting("region", "assistant.aws.region", _.matches("^[a-z]{2}(?:-[a-z]+)+-\\d+$"),
@@ -396,7 +427,7 @@ object AssistantOptions {
     BoolSetting("cris", "assistant.use.cris", _.useCris),
     DoubleSetting("temperature", "assistant.temperature", AssistantConstants.MIN_TEMPERATURE, AssistantConstants.MAX_TEMPERATURE, _.temperature),
     IntSetting("max_tokens", "assistant.max.tokens", AssistantConstants.MIN_MAX_TOKENS, AssistantConstants.MAX_MAX_TOKENS, _.maxTokens),
-    IntSetting("max_tool_iterations", "assistant.max.tool.iterations", 1, 50, _.maxToolIterations),
+    OptionalIntSetting("max_tool_iterations", "assistant.max.tool.iterations", 1, 50, _.maxToolIterations),
     IntSetting("max_retries", "assistant.verify.max.retries", 1, 10, _.maxRetries),
     LongSetting("verify_timeout", "assistant.verify.timeout", 5000L, 300000L, _.verifyTimeout),
     BoolSetting("verify_suggestions", "assistant.verify.suggestions", _.verifySuggestions),

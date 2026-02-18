@@ -353,48 +353,60 @@ object BedrockClient {
 
     var iteration = 0
     var finalText = ""
+    var continue = true
 
-    while (iteration < maxIter) {
+    while (continue) {
       iteration += 1
       if (AssistantDockable.isCancelled) throw new RuntimeException("Operation cancelled")
 
-      val payload = PayloadBuilder.buildAnthropicToolPayload(systemPrompt, msgBuf.toList, temperature, maxTokens)
-      val request = InvokeModelRequest.builder()
-        .modelId(modelId)
-        .body(SdkBytes.fromUtf8String(payload))
-        .build()
-
-      enforceRateLimit()
-      val response = getClient.invokeModel(request)
-      val responseJson = response.body().asUtf8String()
-      val (blocks, stopReason) = ResponseParser.parseAnthropicContentBlocks(responseJson)
-
-      // Collect text from this response
-      val textParts = blocks.collect { case ResponseParser.TextBlock(t) => t }
-      val toolUses = blocks.collect { case t: ResponseParser.ToolUseBlock => t }
-
-      if (toolUses.isEmpty || stopReason != "tool_use") {
-        // No tool calls — we're done
-        finalText = textParts.mkString("\n")
-        iteration = maxIter // exit loop
+      // Check if we've hit the iteration limit
+      val hitLimit = maxIter match {
+        case Some(limit) => iteration > limit
+        case None => false
+      }
+      if (hitLimit) {
+        continue = false
+        // We've hit the limit, exit with whatever text we have
       } else {
-        // Append assistant message with the raw response content
-        msgBuf += (("assistant", rawContentJson(blocks)))
+        val payload = PayloadBuilder.buildAnthropicToolPayload(systemPrompt, msgBuf.toList, temperature, maxTokens)
+        val request = InvokeModelRequest.builder()
+          .modelId(modelId)
+          .body(SdkBytes.fromUtf8String(payload))
+          .build()
 
-        // Execute each tool and build tool_result message
-        val view = _currentView.getOrElse(throw new RuntimeException("No view available for tool execution"))
-        val resultBlocks = toolUses.map { tu =>
-          Output.writeln(s"[Assistant] Tool use ($iteration/$maxIter): ${tu.name}")
-          AssistantDockable.setStatus(s"[tool] ${tu.name} ($iteration/$maxIter)...")
-          val result = AssistantTools.executeTool(tu.name, tu.input, view)
-          (tu.id, result)
+        enforceRateLimit()
+        val response = getClient.invokeModel(request)
+        val responseJson = response.body().asUtf8String()
+        val (blocks, stopReason) = ResponseParser.parseAnthropicContentBlocks(responseJson)
+
+        // Collect text from this response
+        val textParts = blocks.collect { case ResponseParser.TextBlock(t) => t }
+        val toolUses = blocks.collect { case t: ResponseParser.ToolUseBlock => t }
+
+        if (toolUses.isEmpty || stopReason != "tool_use") {
+          // No tool calls — we're done
+          finalText = textParts.mkString("\n")
+          continue = false
+        } else {
+          // Append assistant message with the raw response content
+          msgBuf += (("assistant", rawContentJson(blocks)))
+
+          // Execute each tool and build tool_result message
+          val view = _currentView.getOrElse(throw new RuntimeException("No view available for tool execution"))
+          val iterStr = maxIter.map(_.toString).getOrElse("∞")
+          val resultBlocks = toolUses.map { tu =>
+            Output.writeln(s"[Assistant] Tool use ($iteration/$iterStr): ${tu.name}")
+            AssistantDockable.setStatus(s"[tool] ${tu.name} ($iteration/$iterStr)...")
+            val result = AssistantTools.executeTool(tu.name, tu.input, view)
+            (tu.id, result)
+          }
+
+          // Append user message with tool results
+          msgBuf += (("user", toolResultsJson(resultBlocks)))
+
+          // Accumulate text from intermediate responses
+          if (textParts.nonEmpty) finalText = textParts.mkString("\n")
         }
-
-        // Append user message with tool results
-        msgBuf += (("user", toolResultsJson(resultBlocks)))
-
-        // Accumulate text from intermediate responses
-        if (textParts.nonEmpty) finalText = textParts.mkString("\n")
       }
     }
 
