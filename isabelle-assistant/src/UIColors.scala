@@ -153,4 +153,29 @@ object UIColors {
     def accentText: String = ThemeUtils.themedHex("#ff8a65", "#d84315")
     def accentBorder: String = ThemeUtils.themedHex("#ff5722", "#ff8a65")
   }
+  
+  // Ask user widget colors (matches assistant message aesthetic with amber accent)
+  object AskUser {
+    // Card container - white background like other message bubbles
+    def background: String = "white"
+    def border: String = ThemeUtils.themedHex("#d4a020", "#f5a623")  // Amber left border
+    
+    // Title ("Assistant needs your input")
+    def title: String = ThemeUtils.themedHex("#a0a8b0", "#5f6368")  // Same as message timestamps
+    
+    // Question text
+    def questionText: String = ThemeUtils.themedHex("#ffffff", "#333333")  // Main text color
+    
+    // Context subtitle
+    def contextText: String = ThemeUtils.themedHex("#a0a8b0", "#777777")  // Muted
+    
+    // Option buttons - subtle styling
+    def optionBackground: String = ThemeUtils.themedHex("#3a3a3a", "#f8f8f8")
+    def optionBorder: String = ThemeUtils.themedHex("#555555", "#e0e0e0")
+    def optionText: String = ThemeUtils.themedHex("#d0d0d0", "#444444")
+    def optionLetter: String = ThemeUtils.themedHex("#d4a020", "#f5a623")  // Amber accent
+    
+    // Hover state
+    def optionHoverBackground: String = ThemeUtils.themedHex("#454545", "#eeeeee")
+  }
 }
