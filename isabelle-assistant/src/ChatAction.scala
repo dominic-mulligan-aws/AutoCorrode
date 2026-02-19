@@ -25,12 +25,14 @@ object ChatAction {
     case User extends ChatRole("user")
     case Assistant extends ChatRole("assistant")
     case Tool extends ChatRole("tool")
+    case Widget extends ChatRole("widget")
   }
   object ChatRole {
     def fromWire(value: String): Option[ChatRole] = value match {
       case "user" => Some(User)
       case "assistant" => Some(Assistant)
       case "tool" => Some(Tool)
+      case "widget" => Some(Widget)
       case _ => None
     }
   }

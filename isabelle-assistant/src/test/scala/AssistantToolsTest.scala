@@ -119,8 +119,8 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     params.head.required shouldBe false
   }
 
-  test("all tools should have exactly 28 entries") {
-    AssistantTools.tools.length shouldBe 28
+  test("all tools should have exactly 29 entries") {
+    AssistantTools.tools.length shouldBe 29
   }
 
   test("tool names should follow naming convention") {
@@ -395,5 +395,42 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
   test("web_search should not require I/Q") {
     val tool = AssistantTools.tools.find(_.name == "web_search").get
     tool.description.toLowerCase should not include "i/q"
+  }
+
+  test("ask_user should exist with required question and options params") {
+    val tool = AssistantTools.tools.find(_.name == "ask_user")
+    tool should not be empty
+    val params = tool.get.params
+    params.length shouldBe 3
+    val required = params.filter(_.required).map(_.name).toSet
+    required should contain("question")
+    required should contain("options")
+    required.size shouldBe 2
+  }
+
+  test("ask_user should have optional context param") {
+    val tool = AssistantTools.tools.find(_.name == "ask_user").get
+    val optional = tool.params.filterNot(_.required)
+    optional.length shouldBe 1
+    optional.head.name shouldBe "context"
+    optional.head.typ shouldBe "string"
+  }
+
+  test("ask_user should not require I/Q") {
+    val tool = AssistantTools.tools.find(_.name == "ask_user").get
+    tool.description.toLowerCase should not include "i/q"
+  }
+
+  test("ask_user description should mention multiple-choice and blocking behavior") {
+    val tool = AssistantTools.tools.find(_.name == "ask_user").get
+    val desc = tool.description.toLowerCase
+    desc should include("multiple")
+    desc should (include("option") or include("choice"))
+  }
+
+  test("ask_user description should encourage sparing use") {
+    val tool = AssistantTools.tools.find(_.name == "ask_user").get
+    val desc = tool.description.toLowerCase
+    desc should include("sparing")
   }
 }

@@ -521,6 +521,7 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
       val newHtml = newMessages.map { msg =>
         msg.role match {
           case ChatAction.User => createUserMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp))
+          case ChatAction.Widget => msg.content  // Widget role: raw HTML, no wrapper
           case ChatAction.Tool =>
             // Parse tool message content: "toolName|||{json params}"
             val parts = msg.content.split("\\|\\|\\|", 2)
@@ -568,6 +569,7 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
     val htmlContent = history.map { msg =>
       msg.role match {
         case ChatAction.User => createUserMessageHtml(msg.content, ChatAction.formatTime(msg.timestamp))
+        case ChatAction.Widget => msg.content  // Widget role: raw HTML, no wrapper
         case ChatAction.Tool =>
           val parts = msg.content.split("\\|\\|\\|", 2)
           if (parts.length == 2) {

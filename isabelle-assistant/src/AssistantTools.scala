@@ -152,6 +152,13 @@ object AssistantTools {
       "Open an existing theory file that is not currently open. Makes it available for inspection and editing with other tools.",
       List(
         ToolParam("path", "string", "Path to theory file (relative or absolute)", required = true)
+      )),
+    ToolDef("ask_user",
+      "Ask the user a multiple-choice question when you are uncertain about something, need clarification on their intent, or want their perspective on a decision. The user will see the question and options in the chat panel and click their choice. Use this sparingly — only when the answer genuinely affects your approach.",
+      List(
+        ToolParam("question", "string", "The question to present to the user. Be clear and concise.", required = true),
+        ToolParam("options", "string", "Comma-separated list of short option labels (minimum 2). Keep options brief and clear for best UX.", required = true),
+        ToolParam("context", "string", "Optional brief context explaining why you're asking (shown as a subtitle)")
       ))
   )
 
@@ -248,6 +255,7 @@ object AssistantTools {
         case "web_search" => execWebSearch(args)
         case "create_theory" => execCreateTheory(args, view)
         case "open_theory" => execOpenTheory(args, view)
+        case "ask_user" => execAskUser(args, view)
         case _ => s"Unknown tool: $name"
       }
     } catch {
@@ -1109,6 +1117,96 @@ object AssistantTools {
       result
     }
   }
+
+  private def execAskUser(args: ResponseParser.ToolArgs, view: View): String = {
+    val question = safeStringArg(args, "question", 500)
+    val optionsStr = safeStringArg(args, "options", 1000)
+    val context = safeStringArg(args, "context", 500)
+    
+    if (question.isEmpty) return "Error: question required"
+    
+    val options = optionsStr.split(",").map(_.trim).filter(_.nonEmpty).toList
+    if (options.length < 2) return "Error: at least 2 options required"
+    
+    // Create a latch that blocks until the user clicks an option
+    val latch = new CountDownLatch(1)
+    @volatile var selectedOption = ""
+    
+    // Render the question widget in the chat panel
+    GUI_Thread.later {
+      val html = buildAskUserHtml(question, context, options, { choice =>
+        selectedOption = choice
+        latch.countDown()
+      })
+      // Add as a special "widget" message type (not wrapped in assistant bubble)
+      ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html, 
+        java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+      AssistantDockable.showConversation(ChatAction.getHistory)
+    }
+    
+    // Update status to show we're waiting
+    AssistantDockable.setStatus("Waiting for your input...")
+    
+    // Poll every 500ms to detect cancellation promptly (5 minute timeout)
+    val timeout = 300L // 5 minutes in seconds
+    var responded = false
+    val endTime = System.currentTimeMillis() + timeout * 1000
+    while (!responded && !AssistantDockable.isCancelled && System.currentTimeMillis() < endTime) {
+      responded = latch.await(500, TimeUnit.MILLISECONDS)
+    }
+    
+    if (AssistantDockable.isCancelled) {
+      "User cancelled the operation."
+    } else if (!responded) {
+      "User did not respond within the time limit."
+    } else {
+      AssistantDockable.setStatus("Processing your choice...")
+      // Also add the user's selection as a transient chat message for visual feedback
+      GUI_Thread.later {
+        ChatAction.addMessage(ChatAction.Message(ChatAction.User, s"Selected: $selectedOption", 
+          java.time.LocalDateTime.now(), transient = true))
+        AssistantDockable.showConversation(ChatAction.getHistory)
+      }
+      selectedOption
+    }
+  }
+
+  private def buildAskUserHtml(
+    question: String, context: String, 
+    options: List[String], onChoice: String => Unit
+  ): String = {
+    // Register an action for each option button
+    val optionButtons = options.zipWithIndex.map { case (opt, idx) =>
+      val actionId = AssistantDockable.registerAction(() => onChoice(opt))
+      // Use letters A-Z for first 26 options, then numbers 27+ for any beyond
+      val label = if (idx < 26) ('A' + idx).toChar.toString else (idx + 1).toString
+      // Each option as a clickable list item
+      s"""<div style='margin:2px 0 2px 12px;'>
+         |<a href='action:insert:$actionId' style='text-decoration:none;color:${UIColors.AskUser.optionLetter};font-weight:bold;'>$label.</a>
+         |<a href='action:insert:$actionId' style='text-decoration:none;color:${UIColors.AskUser.optionText};margin-left:8px;'>
+         |${escapeHtml(opt)}</a>
+         |</div>""".stripMargin
+    }.mkString("\n")
+    
+    val contextHtml = if (context.nonEmpty) {
+      s"<div style='font-size:10pt;color:${UIColors.AskUser.contextText};margin:4px 0 8px;font-style:italic;'>${escapeHtml(context)}</div>"
+    } else ""
+    
+    // Match the message bubble pattern: white background + colored left border only
+    s"""<div style='margin:6px 0;padding:8px 10px;background:${UIColors.AskUser.background};
+       |border-left:4px solid ${UIColors.AskUser.border};border-radius:3px;
+       |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+       |<div style='font-size:10pt;color:${UIColors.AskUser.title};margin-bottom:3px;'>
+       |<b>Assistant needs your input</b></div>
+       |<div style='font-size:12pt;margin-bottom:6px;'>
+       |${escapeHtml(question)}</div>
+       |$contextHtml
+       |$optionButtons
+       |</div>""".stripMargin
+  }
+
+  private def escapeHtml(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
   /**
    * Extract messages (errors or warnings) from an entire buffer with line numbers.
