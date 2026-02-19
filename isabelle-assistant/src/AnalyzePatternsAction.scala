@@ -31,7 +31,7 @@ object AnalyzePatternsAction {
   
   /** Extract proof blocks using PIDE command structure for reliable parsing. */
   private def extractProofBlocks(buffer: org.gjt.sp.jedit.buffer.JEditBuffer): List[String] = {
-    val proofStarters = Set("lemma", "theorem", "corollary", "proposition", "schematic_goal")
+    val proofStarters = IsabelleKeywords.proofStarters
     // Enders that close a proof...qed block (decrement depth)
     val structuralEnders = Set("qed", "done", "sorry", "oops")
 

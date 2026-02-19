@@ -86,7 +86,7 @@ object ExtractLemmaAction {
     ProofExtractor.getProofBlockAtOffset(buffer, selStart).map { fullProof =>
       val lemmaStatement = fullProof.linesIterator.find { line =>
         val t = line.trim
-        Set("lemma", "theorem", "corollary", "proposition").exists(kw => t.startsWith(kw + " "))
+        IsabelleKeywords.proofStarters.exists(kw => t.startsWith(kw + " "))
       }.getOrElse("")
 
       ExtractionContext(selectedText, fullProof, lemmaStatement, GoalExtractor.getGoalState(buffer, selStart))

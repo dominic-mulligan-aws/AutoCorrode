@@ -589,7 +589,8 @@ class AssistantDockable(view: View, position: String) extends Dockable(view, pos
     val fullHtml = s"""<html><head><style>
       |body { font-family: 'Segoe UI', 'Helvetica Neue', sans-serif; font-size: 12pt;
       |       margin: 0; padding: 8px; overflow-x: hidden; }
-      |a { color: #7b1fa2; }
+      |a { color: #0066cc; text-decoration: none; }
+      |a:hover { text-decoration: underline; }
       |img { max-width: 100%; }
       |table { max-width: 100%; }
       |pre { max-width: 100%; overflow-x: auto; }

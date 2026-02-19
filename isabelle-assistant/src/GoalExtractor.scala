@@ -34,11 +34,8 @@ object GoalExtractor {
     numSubgoals: Int
   )
 
-  private[assistant] val proofOpeners: Set[String] = Set(
-    "proof", "lemma", "theorem", "corollary", "proposition",
-    "schematic_goal", "function", "primrec", "fun", "definition", "inductive",
-    "coinductive", "nominal_inductive"
-  )
+  private[assistant] val proofOpeners: Set[String] = IsabelleKeywords.proofOpeners ++
+    IsabelleKeywords.definitionForms ++ IsabelleKeywords.inductiveKeywords
 
   private[assistant] val proofClosers: Set[String] = Set(
     "qed", "done", "end", "sorry", "oops", "\\<close>"

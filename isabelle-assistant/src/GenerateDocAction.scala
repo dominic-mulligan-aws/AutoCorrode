@@ -19,12 +19,7 @@ import org.gjt.sp.jedit.View
 /** Generates documentation comments for Isabelle definitions and theorems via LLM. */
 object GenerateDocAction {
 
-  private val documentableKeywords = Set(
-    "definition", "fun", "function", "primrec", "datatype",
-    "lemma", "theorem", "corollary", "proposition",
-    "record", "typedef", "abbreviation", "type_synonym",
-    "inductive", "inductive_set", "coinductive"
-  )
+  private val documentableKeywords = IsabelleKeywords.entityKeywords
 
   /** Detect the command type from source text (legacy, used as fallback). */
   def detectCommandType(source: String): Option[String] = {

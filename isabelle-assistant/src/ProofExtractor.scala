@@ -10,8 +10,8 @@ import scala.util.boundary, boundary.break
 
 /** Extracts proof blocks (lemma..qed) from PIDE command structure and detects apply-style proofs. */
 object ProofExtractor {
-  private val proofStarters = Set("lemma", "theorem", "corollary", "proposition", "schematic_goal")
-  private val proofEnders = Set("qed", "done", "sorry", "oops", "by")
+  private val proofStarters = IsabelleKeywords.proofStarters
+  private val proofEnders = IsabelleKeywords.proofClosers ++ Set("by")
 
   def getProofBlockAtOffset(buffer: JEditBuffer, offset: Int): Option[String] = {
     try {
