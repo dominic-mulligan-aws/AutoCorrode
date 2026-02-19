@@ -130,8 +130,7 @@ object TargetParser {
         // Find named element using Isabelle keyword patterns for precise matching
         findTheoryBuffer(theory, view).flatMap { buffer =>
           val content = buffer.getText(0, buffer.getLength)
-          val keywords = Set("lemma", "theorem", "corollary", "definition", "fun", "function",
-            "primrec", "abbreviation", "datatype", "type_synonym", "inductive", "record", "locale")
+          val keywords = IsabelleKeywords.entityKeywords
           val lines = content.split("\n")
           lines.zipWithIndex.find { case (line, _) =>
             val trimmed = line.trim

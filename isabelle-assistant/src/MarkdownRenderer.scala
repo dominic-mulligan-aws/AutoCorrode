@@ -13,15 +13,8 @@ import java.awt.image.BufferedImage
  * (via JLaTeXMath → BufferedImage → base64 img tag).
  */
 object MarkdownRenderer {
-  /** Code font family string for HTML. Uses jEdit's configured font if available. */
-  def codeFont: String = {
-    try {
-      val f = org.gjt.sp.jedit.jEdit.getFontProperty("view.font")
-      if (f != null) s"'${f.getFamily}', monospace" else "'Source Code Pro', 'Menlo', 'Consolas', monospace"
-    } catch {
-      case _: Exception => "'Source Code Pro', 'Menlo', 'Consolas', monospace"
-    }
-  }
+  /** Code font family string for HTML. Always uses Source Code Pro as primary. */
+  def codeFont: String = "'Source Code Pro', 'Menlo', 'Consolas', 'Monaco', monospace"
 
   def toHtml(markdown: String): String =
     s"<html><body style='font-family:sans-serif;font-size:12pt;padding:8px;'>${toBodyHtml(markdown)}</body></html>"
@@ -76,10 +69,12 @@ object MarkdownRenderer {
     } else {
       val codeBg = UIColors.CodeBlock.background
       val codeBorder = UIColors.CodeBlock.border
-      sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:$codeBg;")
-      sb.append(s"padding:8px 10px;margin:4px 0;border:1px solid $codeBorder;border-radius:3px;")
-      sb.append("white-space:pre;overflow-x:auto;line-height:1.4;'>")
-      sb.append(escaped)
+      // Apply syntax highlighting if it's an isabelle block
+      val highlighted = if (tag == "isabelle") highlightIsabelle(escaped) else escaped
+      sb.append(s"<pre style='font-family:$codeFont;font-size:13pt;background:$codeBg;")
+      sb.append(s"padding:12px 14px;margin:4px 0;border:1px solid $codeBorder;border-radius:3px;")
+      sb.append("white-space:pre;overflow-x:auto;line-height:1.5;'>")
+      sb.append(highlighted)
       sb.append("</pre>")
     }
     i + 1 // skip closing ```
@@ -94,30 +89,65 @@ object MarkdownRenderer {
     val actionBg = UIColors.CodeBlock.actionBackground
     val actionBorder = UIColors.CodeBlock.actionBorder
     val btnBg = UIColors.CodeButton.background
-    val btnHover = UIColors.CodeButton.hoverBackground
-    val btnBorder = UIColors.CodeButton.border
     val btnText = UIColors.CodeButton.text
+    val btnBorder = UIColors.CodeButton.border
+    
+    // Apply Isabelle syntax highlighting
+    val highlighted = highlightIsabelle(escapedCode)
     
     sb.append(s"<div style='margin:4px 0 6px;border:1px solid $codeBorder;border-radius:4px;overflow:hidden;'>")
-    // Code area — clicking inserts
-    sb.append(s"<a href='action:insert:$id' style='text-decoration:none;display:block;'>")
-    sb.append(s"<pre style='font-family:$codeFont;font-size:11pt;background:$codeBg;")
-    sb.append("padding:8px 10px;margin:0;border:none;white-space:pre;overflow-x:auto;cursor:pointer;line-height:1.4;'>")
-    sb.append(escapedCode)
-    sb.append("</pre></a>")
-    // Action bar with styled buttons
-    sb.append(s"<div style='padding:6px 10px;background:$actionBg;border-top:1px solid $actionBorder;font-size:10pt;'>")
+    // Code area without <a> wrapper - JEditorPane forces blue on links
+    sb.append(s"<pre style='font-family:$codeFont;font-size:13pt;background:$codeBg;color:#383a42;")
+    sb.append("padding:14px 18px;margin:0;border:none;white-space:pre;overflow-x:auto;line-height:1.5;'>")
+    sb.append(highlighted)
+    sb.append("</pre>")
+    // Action bar with minimal button styling
+    sb.append(s"<div style='padding:8px 14px;background:$actionBg;border-top:1px solid $actionBorder;'>")
     // Insert button
     sb.append(s"<a href='action:insert:$id' style='display:inline-block;text-decoration:none;")
-    sb.append(s"padding:4px 12px;margin-right:10px;background:$btnBg;color:$btnText;")
-    sb.append(s"border:1px solid $btnBorder;border-radius:4px;font-weight:500;font-size:10pt;")
-    sb.append("'>Insert</a>&nbsp;")
-    // Copy button (explicit non-breaking space before for guaranteed separation)
+    sb.append(s"padding:5px 14px;background:$btnBg;color:$btnText;")
+    sb.append(s"border:1px solid $btnBorder;border-radius:3px;font-weight:normal;font-size:11pt;'>Insert</a>")
+    // Spacer between buttons
+    sb.append("&nbsp;&nbsp;")
+    // Copy button
     sb.append(s"<a href='action:copy:$encodedForUrl' style='display:inline-block;text-decoration:none;")
-    sb.append(s"padding:4px 12px;background:$btnBg;color:$btnText;")
-    sb.append(s"border:1px solid $btnBorder;border-radius:4px;font-weight:500;font-size:10pt;")
-    sb.append("'>Copy</a>")
+    sb.append(s"padding:5px 14px;background:$btnBg;color:$btnText;")
+    sb.append(s"border:1px solid $btnBorder;border-radius:3px;font-weight:normal;font-size:11pt;'>Copy</a>")
     sb.append("</div></div>")
+  }
+
+  /** Highlight Isabelle code with syntax coloring. Input is already HTML-escaped. */
+  private def highlightIsabelle(escaped: String): String = {
+    // Use canonical keyword database
+    val keywords = IsabelleKeywords.forSyntaxHighlighting
+    val types = IsabelleKeywords.builtinTypes
+    
+    val keywordColor = UIColors.Syntax.keyword
+    val typeColor = UIColors.Syntax.typeColor
+    val commentColor = UIColors.Syntax.comment
+    val stringColor = UIColors.Syntax.stringLiteral
+    
+    var result = escaped
+    
+    // Highlight keywords using word boundaries (subtle, no bold)
+    for (kw <- keywords) {
+      val pattern = s"\\b($kw)\\b"
+      result = result.replaceAll(pattern, s"<span style='color:$keywordColor;'>$$1</span>")
+    }
+    
+    // Highlight types
+    for (typ <- types) {
+      val pattern = s"\\b($typ)\\b"
+      result = result.replaceAll(pattern, s"<span style='color:$typeColor;'>$$1</span>")
+    }
+    
+    // Highlight string literals "..."
+    result = result.replaceAll("(&quot;[^&]*?&quot;)", s"<span style='color:$stringColor;'>$$1</span>")
+    
+    // Highlight comments (*...*) - already escaped as &lt;...&gt;
+    result = result.replaceAll("(\\(\\*.*?\\*\\))", s"<span style='color:$commentColor;font-style:italic;'>$$1</span>")
+    
+    result
   }
 
   /** Render a markdown table starting at line index `start`. Returns next line index. */

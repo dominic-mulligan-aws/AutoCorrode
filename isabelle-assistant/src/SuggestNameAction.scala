@@ -17,12 +17,7 @@ import java.util.concurrent.{CountDownLatch, TimeUnit}
  */
 object SuggestNameAction {
 
-  private val nameableKeywords = Set(
-    "definition", "fun", "function", "primrec", "abbreviation",
-    "lemma", "theorem", "corollary", "proposition",
-    "datatype", "codatatype", "type_synonym", "record",
-    "inductive", "inductive_set", "coinductive"
-  )
+  private val nameableKeywords = IsabelleKeywords.entityKeywords
 
   /** Chat command handler: suggest name for command at cursor. */
   def chatSuggestName(view: View): Unit = suggestNameInternal(view)

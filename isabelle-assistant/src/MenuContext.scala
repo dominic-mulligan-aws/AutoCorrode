@@ -67,8 +67,7 @@ object MenuContext {
     }
     // Use PIDE span name to detect definition keywords — no string splitting
     val onDefinition = {
-      val defKeywords = Set("definition", "abbreviation", "function", "primrec",
-        "lemma", "theorem", "datatype", "type_synonym", "inductive", "coinductive", "fun")
+      val defKeywords = IsabelleKeywords.entityKeywords
       CommandExtractor.getCommandKeyword(buffer, offset).exists(defKeywords.contains)
     }
 

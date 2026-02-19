@@ -796,7 +796,7 @@ object ProofLoop {
             .toList.headOption
           // Walk backwards to find the outermost lemma/theorem command
           val allCmds = node.command_iterator().toList
-          val topLevelStarters = Set("lemma", "theorem", "corollary", "proposition", "schematic_goal")
+          val topLevelStarters = IsabelleKeywords.proofStarters
           val insertOffset = targetCmd match {
             case Some((cmd, cmdOff)) =>
               // Find this command's index and walk back to the nearest top-level starter

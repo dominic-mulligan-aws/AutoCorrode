@@ -984,9 +984,7 @@ object AssistantTools {
                   val snapshot = Document_Model.snapshot(model)
                   val node = snapshot.get_node(model.node_name)
                   val entities = scala.collection.mutable.ListBuffer[String]()
-                  val defKeywords = Set("lemma", "theorem", "corollary", "proposition", "definition",
-                    "abbreviation", "fun", "function", "primrec", "datatype", "type_synonym",
-                    "inductive", "coinductive")
+                  val defKeywords = IsabelleKeywords.entityKeywords
                   
                   for ((cmd, cmdOffset) <- node.command_iterator()) {
                     val keyword = cmd.span.name

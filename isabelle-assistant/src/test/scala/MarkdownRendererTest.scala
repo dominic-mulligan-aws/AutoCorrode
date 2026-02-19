@@ -58,6 +58,8 @@ class MarkdownRendererTest extends AnyFunSuite with Matchers {
     val md = "```action:abc123\nby simp\n```"
     val html = MarkdownRenderer.toBodyHtml(md)
     html should include("action:insert:abc123")
-    html should include("by simp")
+    // Check for both keywords (may be syntax highlighted with span tags)
+    html should include("by")
+    html should include("simp")
   }
 }

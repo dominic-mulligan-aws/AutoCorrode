@@ -66,12 +66,12 @@ object UIColors {
   // General link color
   def linkColor: String = "#7b1fa2"
   
-  // Code block colors for syntax highlighting
+  // Code block colors (Rustdoc-inspired: cream background, minimal borders)
   object CodeBlock {
-    def background: String = ThemeUtils.themedHex("#2a2a2a", "#f8f8f8")
-    def border: String = ThemeUtils.themedHex("#444", "#e0e0e0")
-    def actionBackground: String = ThemeUtils.themedHex("#353535", "#f0f0f0")
-    def actionBorder: String = ThemeUtils.themedHex("#444", "#e0e0e0")
+    def background: String = ThemeUtils.themedHex("#1e1e1e", "#f5f3f0")  // Cream/beige like Rustdoc
+    def border: String = ThemeUtils.themedHex("#3a3a3a", "#e1dfdb")
+    def actionBackground: String = ThemeUtils.themedHex("#2a2a2a", "#ebe9e6")
+    def actionBorder: String = ThemeUtils.themedHex("#3a3a3a", "#d8d6d2")
     def actionLinkBackground: String = ThemeUtils.themedHex("#4a3a5a", "#e8e0f0")
   }
   
@@ -99,12 +99,12 @@ object UIColors {
     def hoverColor: String = ThemeUtils.themedHex("#b0b0b0", "#666666")
   }
   
-  // Enhanced button styling for Insert/Copy in code blocks
+  // Minimal button styling for Insert/Copy (Rustdoc-inspired: subtle, text-like)
   object CodeButton {
-    def background: String = ThemeUtils.themedHex("#404040", "#e8eaed")
-    def hoverBackground: String = ThemeUtils.themedHex("#505050", "#d8dadd")
-    def border: String = ThemeUtils.themedHex("#555555", "#dadce0")
-    def text: String = ThemeUtils.themedHex("#d0d0d0", "#3c4043")
+    def background: String = "transparent"
+    def hoverBackground: String = ThemeUtils.themedHex("#3a3a3a", "#e8e6e3")
+    def border: String = ThemeUtils.themedHex("#4a4a4a", "#d0cec9")
+    def text: String = ThemeUtils.themedHex("#c0c0c0", "#3c4043")
   }
   
   // Status indicator colors (for colored dots)
@@ -177,5 +177,20 @@ object UIColors {
     
     // Hover state
     def optionHoverBackground: String = ThemeUtils.themedHex("#454545", "#eeeeee")
+  }
+  
+  // Syntax highlighting colors for Isabelle code blocks (Rustdoc-inspired, subtle)
+  object Syntax {
+    // Keywords (lemma, theorem, proof, etc.) - muted purple/mauve like Rustdoc
+    def keyword: String = ThemeUtils.themedHex("#b392f0", "#8250df")
+    
+    // Types (nat, bool, list, etc.) - subtle teal
+    def typeColor: String = ThemeUtils.themedHex("#79c0ff", "#0550ae")
+    
+    // Comments (*...*) - soft grey
+    def comment: String = ThemeUtils.themedHex("#8b949e", "#57606a")
+    
+    // String literals "..." - soft green
+    def stringLiteral: String = ThemeUtils.themedHex("#a5d6ff", "#0a3069")
   }
 }
