@@ -865,7 +865,7 @@ object AssistantTools {
 
   private def execEditTheory(args: ResponseParser.ToolArgs, view: View): String = {
     val operation = safeStringArg(args, "operation", 50).toLowerCase
-    val text = safeStringArg(args, "text", MAX_STRING_ARG_LENGTH)
+    val text = safeStringArg(args, "text", MAX_STRING_ARG_LENGTH).replace("\\n", "\n")
     val startLine = intArg(args, "start_line", -1)
     val endLine = intArg(args, "end_line", startLine)
 
@@ -1054,7 +1054,7 @@ object AssistantTools {
   private def execCreateTheory(args: ResponseParser.ToolArgs, view: View): String = {
     val name = safeStringArg(args, "name", 200)
     val imports = safeStringArg(args, "imports", 500)
-    val content = safeStringArg(args, "content", MAX_STRING_ARG_LENGTH)
+    val content = safeStringArg(args, "content", MAX_STRING_ARG_LENGTH).replace("\\n", "\n")
     
     if (name.isEmpty) "Error: name required"
     else if (THEORY_NAME_PATTERN.findFirstIn(name).isEmpty) s"Error: invalid theory name '$name'"
