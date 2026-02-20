@@ -193,7 +193,7 @@ object PayloadBuilder {
       g.writeNumberField("max_tokens", maxTokens)
       g.writeNumberField("temperature", temperature)
       g.writeStringField("system", systemPrompt)
-      AssistantTools.writeToolsJson(g)
+      AssistantTools.writeFilteredToolsJson(g)
       g.writeArrayFieldStart("messages")
       for ((role, content) <- messages) {
         g.writeStartObject()
