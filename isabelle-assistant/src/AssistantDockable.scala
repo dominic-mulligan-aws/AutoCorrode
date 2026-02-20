@@ -569,6 +569,7 @@ class AssistantDockable(view: View, position: String)
   private def clearChat(): Unit = {
     ChatAction.clearHistory()
     AssistantDockable.clearInsertActions()
+    ToolPermissions.clearSession()
     htmlPane.setText("")
     badgeContainer.setVisible(false)
     welcomeShown = false

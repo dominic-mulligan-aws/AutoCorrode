@@ -413,7 +413,7 @@ object BedrockClient {
             GUI_Thread.later {
               ChatAction.addToolMessage(tu.name, tu.input)
             }
-            val result = AssistantTools.executeTool(tu.name, tu.input, view)
+            val result = AssistantTools.executeToolWithPermission(tu.name, tu.input, view)
             (tu.id, result)
           }
 

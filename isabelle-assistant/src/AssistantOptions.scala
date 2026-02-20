@@ -5,7 +5,7 @@ package isabelle.assistant
 
 import isabelle._
 import org.gjt.sp.jedit.{jEdit, AbstractOptionPane}
-import javax.swing.{JComboBox, JTextField, JButton, JCheckBox, SwingWorker}
+import javax.swing.{JComboBox, JTextField, JButton, JCheckBox, JScrollPane, SwingWorker}
 
 /** jEdit option pane for Assistant configuration. Provides GUI controls for AWS
   * region, model selection, temperature, verification settings, and tracing
@@ -175,7 +175,47 @@ class AssistantOptions extends AbstractOptionPane("assistant-options") {
       "Number of parallel proof strategies to explore per step (tree-of-thought)"
     )
     addComponent("Branches:", proveBranchesField)
+
+    addSeparator("Tool Permissions")
+
+    // Add each tool permission directly to the main pane
+    permissionCombosField = scala.collection.mutable.Map[String, JComboBox[String]]()
+    
+    for (tool <- AssistantTools.tools.sortBy(_.name)) {
+      val combo = new JComboBox(ToolPermissions.PermissionLevel.displayOptions)
+      val currentLevel = ToolPermissions.getConfiguredLevel(tool.name).toDisplayString
+      combo.setSelectedItem(currentLevel)
+      
+      // Convert snake_case to PascalCase for display (matches chat display)
+      val displayName = tool.name.split("_").map(_.capitalize).mkString
+      
+      // Use user-friendly tooltip
+      val description = ToolPermissions.toolDescriptions.getOrElse(tool.name, tool.description)
+      val tooltip = if (tool.name == "ask_user") {
+        "This tool allows the assistant to ask you questions. Must always be allowed (locked)."
+      } else {
+        s"Allows the assistant to $description"
+      }
+      
+      combo.setEnabled(tool.name != "ask_user")
+      combo.setToolTipText(tooltip)
+      
+      permissionCombosField(tool.name) = combo
+      addComponent(displayName + ":", combo)
+    }
+    
+    val resetButton = new JButton("Reset to Defaults")
+    resetButton.addActionListener(_ => {
+      ToolPermissions.resetToDefaults()
+      for ((toolName, combo) <- permissionCombosField) {
+        val level = ToolPermissions.getConfiguredLevel(toolName).toDisplayString
+        combo.setSelectedItem(level)
+      }
+    })
+    addComponent("", resetButton)
   }
+
+  private var permissionCombosField: scala.collection.mutable.Map[String, JComboBox[String]] = _
 
   private def loadModelsFromCache(): Unit = {
     val current = AssistantOptions.getBaseModelId
@@ -265,6 +305,16 @@ class AssistantOptions extends AbstractOptionPane("assistant-options") {
       proveStepTimeoutField.getText
     )
     jEdit.setProperty("assistant.prove.branches", proveBranchesField.getText)
+
+    // Save tool permissions
+    if (permissionCombosField != null) {
+      for ((toolName, combo) <- permissionCombosField) {
+        val displayLabel = Option(combo.getSelectedItem).map(_.toString).getOrElse("Ask at First Use")
+        ToolPermissions.PermissionLevel.fromDisplayString(displayLabel).foreach { permLevel =>
+          ToolPermissions.setConfiguredLevel(toolName, permLevel)
+        }
+      }
+    }
 
     AssistantOptions.invalidateCache()
     AssistantDockable.refreshModelLabel()

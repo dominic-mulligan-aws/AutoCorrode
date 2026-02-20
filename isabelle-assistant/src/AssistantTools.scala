@@ -382,6 +382,65 @@ object AssistantTools {
     g.writeEndArray()
   }
 
+  /**
+   * Write filtered tool definitions (excludes Deny-level tools).
+   * Used when sending tools to the LLM to prevent it from seeing/using denied tools.
+   */
+  def writeFilteredToolsJson(g: JsonGenerator): Unit = {
+    val visibleTools = ToolPermissions.getVisibleTools
+    g.writeArrayFieldStart("tools")
+    for (tool <- visibleTools) {
+      g.writeStartObject()
+      g.writeStringField("name", tool.name)
+      g.writeStringField("description", tool.description)
+      g.writeObjectFieldStart("input_schema")
+      g.writeStringField("type", "object")
+      g.writeObjectFieldStart("properties")
+      for (p <- tool.params) {
+        g.writeObjectFieldStart(p.name)
+        g.writeStringField("type", p.typ)
+        g.writeStringField("description", p.description)
+        g.writeEndObject()
+      }
+      g.writeEndObject() // properties
+      val req = tool.params.filter(_.required).map(_.name)
+      if (req.nonEmpty) {
+        g.writeArrayFieldStart("required")
+        req.foreach(g.writeString)
+        g.writeEndArray()
+      }
+      g.writeEndObject() // input_schema
+      g.writeEndObject() // tool
+    }
+    g.writeEndArray()
+  }
+
+  /**
+   * Execute a tool with permission checking.
+   * Wraps executeTool with capability-based authorization.
+   * Returns tool result or permission denial message.
+   */
+  def executeToolWithPermission(name: String, args: ResponseParser.ToolArgs, view: View): String = {
+    ToolPermissions.checkPermission(name, args) match {
+      case ToolPermissions.Allowed =>
+        executeTool(name, args, view)
+      case ToolPermissions.Denied =>
+        Output.writeln(s"[Permissions] Tool '$name' denied by policy")
+        s"Permission denied: tool '$name' is not allowed."
+      case ToolPermissions.NeedPrompt(toolName, resource) =>
+        ToolPermissions.promptUser(toolName, resource, view) match {
+          case ToolPermissions.Allowed =>
+            executeTool(name, args, view)
+          case ToolPermissions.Denied =>
+            Output.writeln(s"[Permissions] User denied tool '$name'")
+            s"Permission denied: user declined tool '$name'."
+          case _ =>
+            Output.writeln(s"[Permissions] Unexpected decision for tool '$name'")
+            s"Permission denied: tool '$name'."
+        }
+    }
+  }
+
   /** Maximum length for string arguments from LLM tool calls. */
   private val MAX_STRING_ARG_LENGTH = 10000
 
@@ -1661,77 +1720,65 @@ object AssistantTools {
     }
   }
 
+  /**
+   * Shared method to prompt the user with multiple choice options.
+   * Returns Some(selectedOption) or None if cancelled/timeout.
+   * Used by both execAskUser and ToolPermissions.promptUser.
+   */
+  private[assistant] def promptUserWithChoices(
+    question: String, options: List[String], context: String, view: View
+  ): Option[String] = {
+    if (options.length < 2) return None
+    
+    val latch = new CountDownLatch(1)
+    @volatile var selectedOption = ""
+    
+    GUI_Thread.later {
+      val html = buildAskUserHtml(question, context, options, { choice =>
+        selectedOption = choice
+        latch.countDown()
+      })
+      ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html, 
+        java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+      AssistantDockable.showConversation(ChatAction.getHistory)
+    }
+    
+    AssistantDockable.setStatus("Waiting for your input...")
+    
+    val timeout = 300L
+    var responded = false
+    val endTime = System.currentTimeMillis() + timeout * 1000
+    while (!responded && !AssistantDockable.isCancelled && System.currentTimeMillis() < endTime) {
+      responded = latch.await(500, TimeUnit.MILLISECONDS)
+    }
+    
+    if (AssistantDockable.isCancelled || !responded) {
+      None
+    } else {
+      AssistantDockable.setStatus("Processing your choice...")
+      GUI_Thread.later {
+        ChatAction.addMessage(ChatAction.Message(ChatAction.User, s"Selected: $selectedOption", 
+          java.time.LocalDateTime.now(), transient = true))
+        AssistantDockable.showConversation(ChatAction.getHistory)
+      }
+      Some(selectedOption)
+    }
+  }
+
   private def execAskUser(args: ResponseParser.ToolArgs, view: View): String = {
     val question = safeStringArg(args, "question", 500)
     val optionsStr = safeStringArg(args, "options", 1000)
     val context = safeStringArg(args, "context", 500)
-
+    
     if (question.isEmpty) return "Error: question required"
-
+    
     val options = optionsStr.split(",").map(_.trim).filter(_.nonEmpty).toList
     if (options.length < 2) return "Error: at least 2 options required"
-
-    // Create a latch that blocks until the user clicks an option
-    val latch = new CountDownLatch(1)
-    @volatile var selectedOption = ""
-
-    // Render the question widget in the chat panel
-    GUI_Thread.later {
-      val html = buildAskUserHtml(
-        question,
-        context,
-        options,
-        { choice =>
-          selectedOption = choice
-          latch.countDown()
-        }
-      )
-      // Add as a special "widget" message type (not wrapped in assistant bubble)
-      ChatAction.addMessage(
-        ChatAction.Message(
-          ChatAction.Widget,
-          html,
-          java.time.LocalDateTime.now(),
-          rawHtml = true,
-          transient = true
-        )
-      )
-      AssistantDockable.showConversation(ChatAction.getHistory)
-    }
-
-    // Update status to show we're waiting
-    AssistantDockable.setStatus("Waiting for your input...")
-
-    // Poll every 500ms to detect cancellation promptly (5 minute timeout)
-    val timeout = 300L // 5 minutes in seconds
-    var responded = false
-    val endTime = System.currentTimeMillis() + timeout * 1000
-    while (
-      !responded && !AssistantDockable.isCancelled && System
-        .currentTimeMillis() < endTime
-    ) {
-      responded = latch.await(500, TimeUnit.MILLISECONDS)
-    }
-
-    if (AssistantDockable.isCancelled) {
-      "User cancelled the operation."
-    } else if (!responded) {
-      "User did not respond within the time limit."
-    } else {
-      AssistantDockable.setStatus("Processing your choice...")
-      // Also add the user's selection as a transient chat message for visual feedback
-      GUI_Thread.later {
-        ChatAction.addMessage(
-          ChatAction.Message(
-            ChatAction.User,
-            s"Selected: $selectedOption",
-            java.time.LocalDateTime.now(),
-            transient = true
-          )
-        )
-        AssistantDockable.showConversation(ChatAction.getHistory)
-      }
-      selectedOption
+    
+    promptUserWithChoices(question, options, context, view) match {
+      case Some(choice) => choice
+      case None if AssistantDockable.isCancelled => "User cancelled the operation."
+      case None => "User did not respond within the time limit."
     }
   }
 
