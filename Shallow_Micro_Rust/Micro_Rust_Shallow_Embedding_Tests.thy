@@ -421,7 +421,7 @@ term\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   ((if True { 0 } else { 1 }, True), if False { (2 as u32, 3 as u32) } else { (4, 5) })
 \<rbrakk>\<close>
 
@@ -449,7 +449,7 @@ term\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   assert!((if False { False } else if True { True } else { False }))
 \<rbrakk>\<close>
 
@@ -481,7 +481,7 @@ term\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   ((if True { 0 } else { 1 }, True), False)
 \<rbrakk>\<close>
 
@@ -575,7 +575,7 @@ term\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   if let Some((a, b)) = Some((\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>)) {
     assert!(a == \<llangle>1 :: 32 word\<rrangle>);
     assert!(b == \<llangle>2 :: 32 word\<rrangle>);
@@ -585,7 +585,7 @@ value[simp]\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   if let Some(Some(x)) = Some(Some(\<llangle>3 :: 32 word\<rrangle>)) {
     assert!(x == \<llangle>3 :: 32 word\<rrangle>);
     ()
@@ -619,7 +619,7 @@ term\<open>\<lbrakk>
   ()
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let Some((a, b)) = Some((\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>)) else {
     ()
   };
@@ -659,7 +659,7 @@ term\<open>\<lbrakk>
   return e;
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>7 :: 32 word\<rrangle>;
   let b = \<llangle>9 :: 32 word\<rrangle>;
   let Ok((x, y)) = Ok((a, b)) else {
@@ -671,7 +671,7 @@ value[simp]\<open>\<lbrakk>
 
 subsubsection\<open>Let-Else with Tuples\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let (a,_) = (1,2);
   let (_,b) = (1,2);
   \<llangle>(a,b)\<rrangle>
@@ -697,7 +697,7 @@ term\<open>\<lbrakk>
 
 subsubsection\<open>Match on Result\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let v = match Err(\<llangle>5 :: 32 word\<rrangle>) {
     Ok(_) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>,
     Err(x) \<Rightarrow> x
@@ -727,7 +727,7 @@ term\<open>\<lbrakk>
 
 subsubsection\<open>Variable Binding in Patterns\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let two = \<llangle>2 :: 32 word\<rrangle>;
   let res = match Some(Some(two)) {
     Some(Some(x)) \<Rightarrow> x,
@@ -736,7 +736,7 @@ value[simp]\<open>\<lbrakk>
   assert!(res == two)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let x = \<llangle>9 :: 32 word\<rrangle>;
   let y = match x {
     z \<Rightarrow> z
@@ -746,7 +746,7 @@ value[simp]\<open>\<lbrakk>
 
 subsubsection\<open>Grouped and Irrefutable Patterns\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let v = match Some(\<llangle>5 :: 32 word\<rrangle>) {
     (Some(x)) \<Rightarrow> x,
     _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
@@ -754,14 +754,14 @@ value[simp]\<open>\<lbrakk>
   assert!(v == \<llangle>5 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let foo = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>);
   let (x, y) = foo;
   assert!(x == \<llangle>1 :: 32 word\<rrangle>);
   assert!(y == \<llangle>2 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let x = \<llangle>7 :: 32 word\<rrangle>;
   if let Some(y) = Some(x) {
     assert!(y == x);
@@ -772,7 +772,7 @@ value[simp]\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let foo = (\<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>);
   let (x, y) = foo else {
     ()
@@ -878,7 +878,7 @@ term\<open>\<lbrakk>
 text\<open>Range patterns are lowered in the shallow embedding, but concrete parser-level
 coverage for the Rust-style syntax is exercised separately in frontend-focused tests.\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let y = match Some(\<llangle>7 :: nat\<rrangle>) {
     Some(5..=7) \<Rightarrow> \<llangle>1 :: nat\<rrangle>,
     _ \<Rightarrow> \<llangle>0 :: nat\<rrangle>
@@ -886,7 +886,7 @@ value[simp]\<open>\<lbrakk>
   assert!(y == \<llangle>1 :: nat\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let y = match Some(\<llangle>7 :: nat\<rrangle>) {
     Some(5..7) \<Rightarrow> \<llangle>1 :: nat\<rrangle>,
     _ \<Rightarrow> \<llangle>0 :: nat\<rrangle>
@@ -894,7 +894,7 @@ value[simp]\<open>\<lbrakk>
   assert!(y == \<llangle>0 :: nat\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let y = match \<llangle>[7 :: 32 word, 8, 9]\<rrangle> {
     [head, ..] \<Rightarrow> head,
     _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
@@ -910,7 +910,7 @@ term\<open>\<lbrakk>
   assert!(y == \<llangle>7 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let y = match \<llangle>[1 :: 32 word, 2, 3]\<rrangle> {
     [a, b, .., y, z] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>,
     _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
@@ -918,7 +918,7 @@ value[simp]\<open>\<lbrakk>
   assert!(y == \<llangle>0 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let y = match \<llangle>[1 :: 32 word, 2, 3]\<rrangle> {
     [.., y, z] \<Rightarrow> y + z,
     _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
@@ -926,7 +926,7 @@ value[simp]\<open>\<lbrakk>
   assert!(y == \<llangle>5 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let y = match Some(Some(True)) {
     Some(Some(True)) \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>,
     _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
@@ -934,7 +934,7 @@ value[simp]\<open>\<lbrakk>
   assert!(y == \<llangle>1 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let y = match Some(Some(\<llangle>7 :: 32 word\<rrangle>)) {
     Some(whole @ Some(v)) \<Rightarrow> v,
     _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
@@ -944,7 +944,7 @@ value[simp]\<open>\<lbrakk>
 
 subsubsection\<open>Nested Patterns\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let one = \<llangle>1 :: 32 word\<rrangle>;
   let zero = \<llangle>0 :: 32 word\<rrangle>;
   assert!((match Some(Some(None)) {
@@ -953,7 +953,7 @@ value[simp]\<open>\<lbrakk>
   }) == zero)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>1 :: 32 word\<rrangle>;
   let b = \<llangle>2 :: 32 word\<rrangle>;
   let c = \<llangle>3 :: 32 word\<rrangle>;
@@ -993,7 +993,7 @@ term\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>1 :: 32 word\<rrangle>;
   let b = \<llangle>2 :: 32 word\<rrangle>;
   let c = \<llangle>3 :: 32 word\<rrangle>;
@@ -1005,7 +1005,7 @@ value[simp]\<open>\<lbrakk>
   assert!(res.1 == c)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>4 :: 32 word\<rrangle>;
   let b = \<llangle>8 :: 32 word\<rrangle>;
   if let Some((_, y)) = Some((a, b)) {
@@ -1016,7 +1016,7 @@ value[simp]\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>1 :: 32 word\<rrangle>;
   let b = \<llangle>2 :: 32 word\<rrangle>;
   let c = \<llangle>3 :: 32 word\<rrangle>;
@@ -1122,7 +1122,7 @@ term\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let zero = \<llangle>0 :: 32 word\<rrangle>;
   let one = \<llangle>1 :: 32 word\<rrangle>;
   let res = match Some(one) {
@@ -1132,7 +1132,7 @@ value[simp]\<open>\<lbrakk>
   assert!(res == one)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let zero = \<llangle>0 :: 32 word\<rrangle>;
   let res = match Some(zero) {
     Some(x) if x > zero \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>,
@@ -1300,26 +1300,26 @@ subsection\<open>Data Structures - Tuples\<close>
 
 subsubsection\<open>Tuple Construction\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, True, False)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   ((False, True), False)
 \<rbrakk>\<close>
 
 subsubsection\<open>Tuple Indexing\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).0 == \<llangle>0 :: 32 word\<rrangle>);
   assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).1 == \<llangle>1 :: 32 word\<rrangle>);
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>0 :: 32 word\<rrangle>;
   let b = \<llangle>1 :: 32 word\<rrangle>;
   let c = \<llangle>2 :: 32 word\<rrangle>;
@@ -1337,7 +1337,7 @@ value[simp]\<open>\<lbrakk>
   assert!(tup.5 == 5);
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let tup = (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>,
              \<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>, \<llangle>6 :: 32 word\<rrangle>, \<llangle>7 :: 32 word\<rrangle>,
              \<llangle>8 :: 32 word\<rrangle>, \<llangle>9 :: 32 word\<rrangle>, \<llangle>10 :: 32 word\<rrangle>, \<llangle>11 :: 32 word\<rrangle>,
@@ -1347,7 +1347,7 @@ value[simp]\<open>\<lbrakk>
   assert!(tup.15 == \<llangle>15 :: 32 word\<rrangle>)
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>0 :: 32 word\<rrangle>;
   let b = \<llangle>1 :: 32 word\<rrangle>;
   let c = \<llangle>2 :: 32 word\<rrangle>;
@@ -1359,7 +1359,7 @@ value[simp]\<open>\<lbrakk>
   assert!(tup.3.1 == True);
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).0 == 0)
 \<rbrakk>\<close>
 
@@ -1371,7 +1371,7 @@ lemma \<open>\<lbrakk>assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 
 
 subsubsection\<open>Tuple Destructuring\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>0 :: 32 word\<rrangle>;
   let b = \<llangle>1 :: 32 word\<rrangle>;
   let c = \<llangle>2 :: 32 word\<rrangle>;
@@ -1397,7 +1397,7 @@ value[simp]\<open>\<lbrakk>
   assert!(ccc == c);
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let a = \<llangle>10 :: 32 word\<rrangle>;
   let b = \<llangle>20 :: 32 word\<rrangle>;
   let c = \<llangle>30 :: 32 word\<rrangle>;
@@ -1446,7 +1446,7 @@ end
 
 subsubsection\<open>Inclusive Range Boundary Behavior\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let int_max = \<llangle>255 :: 8 word\<rrangle>;
   let inclusive = int_max ..= int_max;
   assert!(!(inclusive.is_empty()));
@@ -1456,7 +1456,7 @@ value[simp]\<open>\<lbrakk>
   ()
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let mut count = \<llangle>0 :: 8 word\<rrangle>;
   let int_max = \<llangle>255 :: 8 word\<rrangle>;
   for i in int_max ..= int_max {
@@ -1762,7 +1762,7 @@ term \<open>\<lbrakk> & mut [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32
 term \<open>\<lbrakk> & mut [] \<rbrakk>\<close>
 term \<open>\<lbrakk> [\<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let xs = [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>];
   assert!(xs[0] == \<llangle>1 :: 32 word\<rrangle>);
   assert!(xs[2] == \<llangle>3 :: 32 word\<rrangle>)
@@ -1946,7 +1946,7 @@ term\<open>\<lbrakk>
   }
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   if let CaseA(x) | CaseB(x) = \<llangle>CaseA 5\<rrangle> {
     assert!(x == \<llangle>5 :: nat\<rrangle>);
     ()
@@ -1966,7 +1966,7 @@ term\<open>\<lbrakk>
   x
 \<rbrakk>\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let CaseA(x) | CaseB(x) = \<llangle>CaseB 10\<rrangle> else {
     ()
   };
@@ -1997,7 +1997,7 @@ end
 
 subsubsection\<open>Disjunctive Pattern with Result\<close>
 
-value[simp]\<open>\<lbrakk>
+term\<open>\<lbrakk>
   let res = match Ok(\<llangle>10 :: 32 word\<rrangle>) {
     Ok(x) | Err(x) \<Rightarrow> x
   };
