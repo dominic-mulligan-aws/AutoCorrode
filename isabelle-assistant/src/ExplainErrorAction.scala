@@ -42,7 +42,10 @@ object ExplainErrorAction {
         val command = IQIntegration.getCommandAtOffset(buffer, offset)
         val range = command match {
           case Some(cmd) => cmd.range
-          case None => Text.Range(offset, offset + 1)  // Fallback to single char
+          case None => 
+            // Fallback to single char, clamped to buffer length
+            val safeEnd = math.min(offset + 1, buffer.getLength)
+            Text.Range(offset, safeEnd)
         }
 
         val errors = snapshot.cumulate(range, List.empty[String],
