@@ -21,7 +21,9 @@ object CommandExtractor {
       val node = snapshot.get_node(model.node_name)
 
       if (node.commands.nonEmpty) {
-        val targetRange = Text.Range(offset, offset + 1)
+        // Clamp range to avoid exceeding buffer length when cursor is at end
+        val safeEnd = math.min(offset + 1, buffer.getLength)
+        val targetRange = Text.Range(offset, safeEnd)
         node.command_iterator(targetRange).toList.headOption.map {
           case (command, _) => command.source
         }
@@ -37,7 +39,9 @@ object CommandExtractor {
       val node = snapshot.get_node(model.node_name)
 
       if (node.commands.nonEmpty) {
-        val targetRange = Text.Range(offset, offset + 1)
+        // Clamp range to avoid exceeding buffer length when cursor is at end
+        val safeEnd = math.min(offset + 1, buffer.getLength)
+        val targetRange = Text.Range(offset, safeEnd)
         node.command_iterator(targetRange).toList.headOption.map {
           case (command, _) => command.span.name
         }

@@ -89,7 +89,9 @@ object MenuContext {
     try {
       Document_Model.get_model(buffer).exists { model =>
         val snapshot = Document_Model.snapshot(model)
-        val range = Text.Range(offset, offset + 1)
+        // Clamp range to avoid exceeding buffer length when cursor is at end
+        val safeEnd = math.min(offset + 1, buffer.getLength)
+        val range = Text.Range(offset, safeEnd)
         snapshot.cumulate(range, false,
           Markup.Elements(Markup.WARNING_MESSAGE, Markup.WARNING, Markup.LEGACY), _ => {
             case _ => Some(true)
