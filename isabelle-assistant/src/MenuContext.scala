@@ -81,6 +81,103 @@ object MenuContext {
     iqAvailable: Boolean
   )
 
+  /** Extract Isabelle keywords from buffer lines up to offset (local, no MCP).
+    * Walks backward through buffer lines, extracting first token of each line.
+    */
+  private def extractKeywordsUpTo(buffer: JEditBuffer, offset: Int, maxLinesBack: Int = 200): Seq[String] = {
+    val line = buffer.getLineOfOffset(offset)
+    val startLine = math.max(0, line - maxLinesBack)
+    val keywords = scala.collection.mutable.ArrayBuffer[String]()
+    
+    for (lineNum <- line to startLine by -1) {
+      val lineText = buffer.getLineText(lineNum)
+      if (lineText != null) {
+        val trimmed = lineText.trim
+        if (trimmed.nonEmpty) {
+          // Extract first token
+          val firstToken = trimmed.takeWhile(c => !c.isWhitespace && c != '(' && c != '"')
+          if (IsabelleKeywords.allKeywords.contains(firstToken)) {
+            keywords += firstToken
+          }
+        }
+      }
+    }
+    keywords.toSeq
+  }
+
+  /** Get the first keyword on the line containing offset (local, no MCP). */
+  private def firstKeywordAtOffset(buffer: JEditBuffer, offset: Int): Option[String] = {
+    val line = buffer.getLineOfOffset(offset)
+    val lineText = buffer.getLineText(line)
+    if (lineText == null) return None
+    
+    val trimmed = lineText.trim
+    if (trimmed.isEmpty) return None
+    
+    val firstToken = trimmed.takeWhile(c => !c.isWhitespace && c != '(' && c != '"')
+    if (IsabelleKeywords.allKeywords.contains(firstToken)) Some(firstToken)
+    else None
+  }
+
+  /** Check if any visible lines around offset contain "apply" keyword (local, no MCP). */
+  private def hasApplyInContext(buffer: JEditBuffer, offset: Int, contextLines: Int = 50): Boolean = {
+    val centerLine = buffer.getLineOfOffset(offset)
+    val startLine = math.max(0, centerLine - contextLines)
+    val endLine = math.min(buffer.getLineCount - 1, centerLine + contextLines)
+    
+    for (lineNum <- startLine to endLine) {
+      val lineText = buffer.getLineText(lineNum)
+      if (lineText != null && CommandMatcher.startsWithKeyword(lineText.trim, "apply")) {
+        return true
+      }
+    }
+    false
+  }
+
+  /** Analyze cursor context using only local buffer text (no blocking MCP calls).
+    * Safe for use on the EDT (e.g., in menu construction). May be slightly over-inclusive.
+    */
+  def analyzeLocal(view: View, buffer: JEditBuffer, offset: Int, selection: Option[String]): Context = {
+    val hasSelection = selection.exists(_.trim.nonEmpty)
+    
+    // Check if line at offset has non-whitespace text
+    val line = buffer.getLineOfOffset(offset)
+    val lineText = buffer.getLineText(line)
+    val hasCommand = lineText != null && lineText.trim.nonEmpty
+    
+    // Extract keywords and detect proof context
+    val keywords = extractKeywordsUpTo(buffer, offset)
+    val inProof = GoalExtractor.isInProofContextFromKeywords(keywords)
+    
+    // Assume goal exists if in proof (action will handle if missing)
+    val hasGoal = inProof
+    
+    // Check if first keyword at offset is a definition/entity keyword
+    val onDefinition = firstKeywordAtOffset(buffer, offset)
+      .exists(IsabelleKeywords.entityKeywords.contains)
+    
+    // Check for apply-style proof in visible context
+    val hasApplyProof = hasApplyInContext(buffer, offset)
+    
+    // Always show error/type items - actions handle "not found" case
+    val onError = true
+    val hasTypeInfo = hasCommand
+    
+    Context(
+      inProof = inProof,
+      hasGoal = hasGoal,
+      onError = onError,
+      onWarning = false,  // Not used by any menu items
+      hasSelection = hasSelection,
+      hasCommand = hasCommand,
+      hasTypeInfo = hasTypeInfo,
+      hasApplyProof = hasApplyProof,
+      onDefinition = onDefinition,
+      iqAvailable = IQAvailable.isAvailableCached
+    )
+  }
+
+  /** Analyze cursor context using MCP introspection (may block, use off EDT). */
   def analyze(view: View, buffer: JEditBuffer, offset: Int, selection: Option[String]): Context = {
     val inProof = GoalExtractor.isInProofContext(buffer, offset)
     val hasGoal = inProof && GoalExtractor.getGoalState(buffer, offset).isDefined

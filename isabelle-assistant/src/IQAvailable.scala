@@ -31,6 +31,11 @@ object IQAvailable {
       result
   }
 
+  /** Get cached I/Q availability status without making any network call.
+    * Returns false if no probe has been performed yet. Safe for EDT use.
+    */
+  def isAvailableCached: Boolean = _cached.getOrElse(false)
+
   /** Force a re-check of I/Q availability. Call after installing I/Q at runtime. */
   def recheck(): Boolean = {
     val result = check()
