@@ -27,7 +27,7 @@ class AssistantContextMenu extends DynamicContextMenuService {
         val view = textArea.getView
         val offset = textArea.xyToOffset(evt.getX, evt.getY)
         val selection = Option(textArea.getSelectedText)
-        val ctx = MenuContext.analyze(view, buffer, offset, selection)
+        val ctx = MenuContext.analyzeLocal(view, buffer, offset, selection)
         val menu = new JMenu("Isabelle Assistant")
 
         // === Understanding ===
@@ -134,26 +134,22 @@ class AssistantContextMenu extends DynamicContextMenuService {
           val genMenu = new JMenu("Generate")
 
           if (ctx.onDefinition) {
-            val defText = CommandExtractor.getCommandAtOffset(buffer, offset)
             addItem(genMenu, "Intro Rule") { _ =>
-              defText.foreach(t => GenerateRulesAction.generateIntro(view, t))
+              CommandExtractor.getCommandAtOffset(buffer, offset)
+                .foreach(t => GenerateRulesAction.generateIntro(view, t))
             }
             addItem(genMenu, "Elim Rule") { _ =>
-              defText.foreach(t => GenerateRulesAction.generateElim(view, t))
+              CommandExtractor.getCommandAtOffset(buffer, offset)
+                .foreach(t => GenerateRulesAction.generateElim(view, t))
             }
             addItem(genMenu, "Test Cases") { _ =>
-              defText.foreach(t => GenerateTestsAction.generate(view, t))
+              CommandExtractor.getCommandAtOffset(buffer, offset)
+                .foreach(t => GenerateTestsAction.generate(view, t))
             }
-          }
-
-          val commandForDoc =
-            CommandExtractor.getCommandAtOffset(buffer, offset)
-          // Use PIDE span name for command type detection — no string splitting
-          val commandType =
-            GenerateDocAction.detectCommandTypeAtOffset(buffer, offset)
-          if (commandType.isDefined) {
             addItem(genMenu, "Doc Comment") { _ =>
-              commandForDoc.foreach(text =>
+              val commandText = CommandExtractor.getCommandAtOffset(buffer, offset)
+              val commandType = GenerateDocAction.detectCommandTypeAtOffset(buffer, offset)
+              commandText.foreach(text =>
                 GenerateDocAction.generate(
                   view,
                   text,
