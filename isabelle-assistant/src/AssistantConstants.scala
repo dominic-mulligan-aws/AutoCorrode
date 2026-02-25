@@ -66,6 +66,7 @@ object AssistantConstants {
   val GUI_DISPATCH_TIMEOUT_SEC = 3L
   val BUFFER_OPERATION_TIMEOUT = 5000L
   val BUFFER_OPERATION_TIMEOUT_SEC = 5L
+  val ASK_USER_TIMEOUT_SEC = 60L
   
   // Query and search limits
   val MAX_CONSTANTS_FOR_FIND_THEOREMS = 5

@@ -270,20 +270,11 @@ object ChatAction {
     history = Nil
   }
 
-  /** Get the current history as an immutable snapshot. Thread-safe. */
-  /** Get the current history. Since history is an immutable List and the JVM
-    * guarantees atomic reference assignment, this is safe to call concurrently.
-    * Returns the current immutable List reference, which cannot be modified
-    * by concurrent addMessage calls.
+  /** Get the current history as an immutable snapshot. Thread-safe because
+    * @volatile ensures visibility and the List reference is immutable once
+    * published. Writers are serialized by historyLock.
     */
   def getHistory: List[Message] = history
-
-  /** Alias for getHistory with an explicit name indicating snapshot semantics.
-    * Both methods return the same immutable List reference - the "snapshot"
-    * terminology emphasizes that subsequent mutations won't affect the
-    * returned list.
-    */
-  def getHistorySnapshot: List[Message] = history
 
   def formatTime(ts: LocalDateTime): String = ts.format(timeFmt)
 
@@ -457,6 +448,7 @@ object ChatAction {
     AssistantDockable.showConversation(getHistory)
   }
 
+  /** Refresh available Bedrock models and display in chat. Runs async on background thread. */
   private def runModels(): Unit = {
     AssistantDockable.setStatus("Refreshing models...")
 
@@ -481,6 +473,7 @@ object ChatAction {
     }
   }
 
+  /** View or modify Assistant configuration settings. Handles :set [key [value]] syntax. */
   private def runSet(arg: String): Unit = {
     val parts = arg.trim.split("\\s+", 2)
 
@@ -508,6 +501,7 @@ object ChatAction {
     }
   }
 
+  /** Explain Isabelle code at specified target location. Fetches context and invokes LLM. */
   private def runExplain(view: View, targetSpec: String): Unit = {
     val targetOpt =
       if (targetSpec.trim.isEmpty) Some(TargetParser.CurrentCursor)
@@ -553,6 +547,7 @@ object ChatAction {
     }
   }
 
+  /** Generate proof step suggestions for target location. Delegates to SuggestAction. */
   private def runSuggest(view: View, targetSpec: String): Unit = {
     val targetOpt =
       if (targetSpec.trim.isEmpty) Some(TargetParser.CurrentCursor)
@@ -593,6 +588,7 @@ object ChatAction {
     }
   }
 
+  /** Explain error message at cursor position via LLM with context. */
   private def runExplainError(view: View): Unit = {
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
@@ -619,6 +615,7 @@ object ChatAction {
     }
   }
 
+  /** Verify proof method via I/Q and optionally diagnose failures with LLM. */
   private def runVerify(view: View, proof: String): Unit = {
     if (proof.trim.isEmpty)
       addResponse("Usage: `:verify <proof>`\n\nExample: `:verify by simp`")
@@ -694,6 +691,7 @@ object ChatAction {
     }
   }
 
+  /** Run sledgehammer at cursor position and display results in chat. */
   private def runSledgehammer(view: View): Unit = {
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
@@ -736,6 +734,7 @@ object ChatAction {
     }
   }
 
+  /** Search for theorems matching pattern via find_theorems. Displays results in chat. */
   private def runFind(view: View, pattern: String): Unit = {
     if (pattern.trim.isEmpty)
       addResponse(

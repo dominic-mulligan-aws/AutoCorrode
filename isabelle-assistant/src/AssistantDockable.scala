@@ -663,7 +663,10 @@ class AssistantDockable(view: View, position: String)
       badgeContainer.setVisible(false)
 
       val welcome = if (history.isEmpty && !welcomeShown) {
-        welcomeShown = true; createWelcomeHtml()
+        welcomeShown = true
+        ConversationRenderer.createWelcomeHtml(() => 
+          AssistantDockable.registerAction(() => ChatAction.chat(view, ":help"))
+        )
       } else ""
 
       // Incremental append: if we have a prefix match, append only new messages
@@ -672,11 +675,15 @@ class AssistantDockable(view: View, position: String)
         renderedMessageCount > 0 && history.length > renderedMessageCount
 
       if (canIncrement) {
+        val registerAction = (code: String) =>
+          AssistantDockable.registerAction(
+            InsertHelper.createInsertAction(view, code)
+          )
         val newMessages = history.drop(renderedMessageCount)
         val newHtml = newMessages.map { msg =>
           msg.role match {
             case ChatAction.User =>
-              createUserMessageHtml(
+              ConversationRenderer.createUserMessageHtml(
                 msg.content,
                 ChatAction.formatTime(msg.timestamp)
               )
@@ -691,30 +698,33 @@ class AssistantDockable(view: View, position: String)
                   val paramsJson = parts(1)
                   val params =
                     ResponseParser.parseToolArgsJsonObject(paramsJson)
-                  createToolMessageHtml(
+                  ConversationRenderer.createToolMessageHtml(
                     toolName,
                     params,
                     ChatAction.formatTime(msg.timestamp)
                   )
                 } catch {
                   case _: Exception =>
-                    createAssistantMessageHtml(
+                    ConversationRenderer.createAssistantMessageHtml(
                       msg.content,
                       ChatAction.formatTime(msg.timestamp),
-                      msg.rawHtml
+                      msg.rawHtml,
+                      registerAction
                     )
                 }
               } else
-                createAssistantMessageHtml(
+                ConversationRenderer.createAssistantMessageHtml(
                   msg.content,
                   ChatAction.formatTime(msg.timestamp),
-                  msg.rawHtml
+                  msg.rawHtml,
+                  registerAction
                 )
             case _ =>
-              createAssistantMessageHtml(
+              ConversationRenderer.createAssistantMessageHtml(
                 msg.content,
                 ChatAction.formatTime(msg.timestamp),
-                msg.rawHtml
+                msg.rawHtml,
+                registerAction
               )
           }
         }.mkString
@@ -751,10 +761,14 @@ class AssistantDockable(view: View, position: String)
       history: List[ChatAction.Message],
       welcome: String
   ): Unit = {
+    val registerAction = (code: String) =>
+      AssistantDockable.registerAction(
+        InsertHelper.createInsertAction(view, code)
+      )
     val htmlContent = history.map { msg =>
       msg.role match {
         case ChatAction.User =>
-          createUserMessageHtml(
+          ConversationRenderer.createUserMessageHtml(
             msg.content,
             ChatAction.formatTime(msg.timestamp)
           )
@@ -767,30 +781,33 @@ class AssistantDockable(view: View, position: String)
               val toolName = parts(0)
               val paramsJson = parts(1)
               val params = ResponseParser.parseToolArgsJsonObject(paramsJson)
-              createToolMessageHtml(
+              ConversationRenderer.createToolMessageHtml(
                 toolName,
                 params,
                 ChatAction.formatTime(msg.timestamp)
               )
             } catch {
               case _: Exception =>
-                createAssistantMessageHtml(
+                ConversationRenderer.createAssistantMessageHtml(
                   msg.content,
                   ChatAction.formatTime(msg.timestamp),
-                  msg.rawHtml
+                  msg.rawHtml,
+                  registerAction
                 )
             }
           } else
-            createAssistantMessageHtml(
+            ConversationRenderer.createAssistantMessageHtml(
               msg.content,
               ChatAction.formatTime(msg.timestamp),
-              msg.rawHtml
+              msg.rawHtml,
+              registerAction
             )
         case _ =>
-          createAssistantMessageHtml(
+          ConversationRenderer.createAssistantMessageHtml(
             msg.content,
             ChatAction.formatTime(msg.timestamp),
-            msg.rawHtml
+            msg.rawHtml,
+            registerAction
           )
       }
     }.mkString
@@ -893,165 +910,23 @@ class AssistantDockable(view: View, position: String)
         if (stripped.contains("."))
           stripped.substring(stripped.indexOf('.') + 1)
         else stripped
-      val shortName = afterProvider.take(30)
+      val shortName = HtmlUtil.escapeHtml(afterProvider.take(30))
+      val escapedModelId = HtmlUtil.escapeHtml(modelId)
+      val mutedColor = UIColors.ModelLabel.muted
       (
-        s"<html><span style='color:#888;font-size:10pt;'>Model:</span> <b style='font-size:10pt;'>$shortName</b></html>",
-        s"Model: $modelId"
+        s"<html><span style='color:$mutedColor;font-size:10pt;'>Model:</span> <b style='font-size:10pt;'>$shortName</b></html>",
+        s"Model: $escapedModelId"
       )
     } else {
+      val mutedColor = UIColors.ModelLabel.muted
+      val unconfiguredColor = UIColors.ModelLabel.unconfigured
       (
-        "<html><span style='color:#888;font-size:10pt;'>Model:</span> <b style='font-size:10pt;color:#c62828;'>Not configured</b></html>",
+        s"<html><span style='color:$mutedColor;font-size:10pt;'>Model:</span> <b style='font-size:10pt;color:$unconfiguredColor;'>Not configured</b></html>",
         "No model configured — use :set model <id>"
       )
     }
     modelLabel.setText(display)
     modelLabel.setToolTipText(tooltip)
-  }
-
-  /** Shared chat bubble wrapper — used by user, assistant, and tool message
-    * renderers.
-    */
-  private def messageBubbleHtml(
-      border: String,
-      headerHtml: String,
-      bodyHtml: String,
-      copyContent: Option[String] = None
-  ): String = {
-    val copyLink = copyContent match {
-      case Some(raw) =>
-        val encoded = java.net.URLEncoder.encode(raw, "UTF-8")
-        val copyColor = UIColors.CopyButton.color
-        s"""<a href='action:copy:$encoded' style='position:absolute;top:6px;right:8px;text-decoration:none;color:$copyColor;opacity:0.6;font-size:10pt;font-weight:normal;' onmouseover='this.style.opacity="1.0"' onmouseout='this.style.opacity="0.6"' title='Copy message'>Copy</a>"""
-      case None => ""
-    }
-    val posStyle = if (copyContent.isDefined) "position:relative;" else ""
-    s"""<div style='margin:6px 0;padding:8px 10px;background:white;border-left:4px solid $border;border-radius:3px;overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);$posStyle'>
-       |$copyLink
-       |$headerHtml
-       |<div>$bodyHtml</div>
-       |</div>""".stripMargin
-  }
-
-  private def createUserMessageHtml(
-      content: String,
-      timestamp: String
-  ): String = {
-    val tsColor = UIColors.ChatBubble.userTimestamp
-    messageBubbleHtml(
-      border = UIColors.ChatBubble.userBorder,
-      headerHtml =
-        s"<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>You</b> · $timestamp</div>",
-      bodyHtml = MarkdownRenderer.toBodyHtml(content),
-      copyContent = Some(content)
-    )
-  }
-
-  private def createAssistantMessageHtml(
-      content: String,
-      timestamp: String,
-      rawHtml: Boolean = false
-  ): String = {
-    val isError = content.startsWith("Error:") || content.startsWith("[FAIL]")
-    val body =
-      if (rawHtml) content
-      else {
-        val registerAction = (code: String) => {
-          val v = view
-          AssistantDockable.registerAction(
-            InsertHelper.createInsertAction(v, code)
-          )
-        }
-        val rendered =
-          MarkdownRenderer.toBodyHtmlWithActions(content, registerAction)
-        val withLinks = "\\{\\{INSERT:([a-f0-9]+)\\}\\}".r.replaceAllIn(
-          rendered,
-          m => s"<a href='action:insert:${m.group(1)}'>[Insert]</a>"
-        )
-        "\\{\\{ACTION:([a-f0-9]+):([^}]+)\\}\\}".r.replaceAllIn(
-          withLinks,
-          m => s"<a href='action:insert:${m.group(1)}'>Run ${m.group(2)}</a>"
-        )
-      }
-    val (border, tsColor) = if (isError) {
-      (UIColors.ChatBubble.errorBorder, UIColors.ChatBubble.errorTimestamp)
-    } else {
-      (
-        UIColors.ChatBubble.assistantBorder,
-        UIColors.ChatBubble.assistantTimestamp
-      )
-    }
-    messageBubbleHtml(
-      border = border,
-      headerHtml =
-        s"<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>Assistant</b> · $timestamp</div>",
-      bodyHtml = body,
-      copyContent = Some(content)
-    )
-  }
-
-  /** Create HTML for a tool-use message. Parameters shown inline only, no
-    * redundant expandable section.
-    */
-  private def createToolMessageHtml(
-      toolName: String,
-      params: ResponseParser.ToolArgs,
-      timestamp: String
-  ): String = {
-    val border = UIColors.ToolMessage.border
-    val tsColor = UIColors.ToolMessage.timestamp
-
-    // Convert snake_case to PascalCase for display
-    val displayName = toolName.split("_").map(_.capitalize).mkString
-
-    // Format parameters for summary line (don't truncate - show full values inline)
-    val paramSummary =
-      if (params.isEmpty) "()"
-      else {
-        val formatted = params
-          .map { case (k, v) =>
-            s"$k: ${HtmlUtil.escapeHtml(ResponseParser.toolValueToDisplay(v))}"
-          }
-          .mkString(", ")
-        s"($formatted)"
-      }
-
-    val bodyHtml =
-      s"<div style='font-family:${MarkdownRenderer.codeFont};font-size:11pt;'><b>$displayName</b><span style='color:#888;font-weight:normal;'>$paramSummary</span></div>"
-    messageBubbleHtml(
-      border = border,
-      headerHtml =
-        s"<div style='font-size:10pt;color:$tsColor;margin-bottom:3px;'><b>Tool</b> · $timestamp</div>",
-      bodyHtml = bodyHtml
-    )
-  }
-
-  private def createWelcomeHtml(): String = {
-    val helpId =
-      AssistantDockable.registerAction(() => ChatAction.chat(view, ":help"))
-    val wBg = UIColors.Welcome.background
-    val wBorder = UIColors.Welcome.border
-    val wTitle = UIColors.Welcome.title
-    val wText = UIColors.Welcome.text
-    val wMuted = UIColors.Welcome.muted
-    val codeBg = UIColors.Welcome.codeBackground
-    val linkColor = UIColors.Welcome.linkColor
-
-    val modelWarning = if (AssistantOptions.getModelId.isEmpty) {
-      val eBg = UIColors.ErrorBox.background
-      val eBorder = UIColors.ErrorBox.border
-      val eText = UIColors.ErrorBox.text
-      s"""<div style='margin-top:6px;padding:6px 8px;background:$eBg;border:1px solid $eBorder;border-radius:3px;font-size:11pt;color:$eText;'>
-         |No model configured. Use <code style='background:$codeBg;padding:1px 4px;border-radius:2px;'>:set model &lt;model-id&gt;</code> or
-         |<b>Plugins → Plugin Options → Isabelle Assistant</b> to set one.
-         |Run <code style='background:$codeBg;padding:1px 4px;border-radius:2px;'>:models</code> to see available models.</div>""".stripMargin
-    } else ""
-    s"""<div style='margin:8px 0;padding:10px 12px;background:$wBg;border:1px solid $wBorder;border-radius:4px;'>
-       |<div style='font-weight:bold;color:$wTitle;margin-bottom:4px;'>Isabelle Assistant</div>
-       |<div style='color:$wText;font-size:11pt;'>AI assistant for Isabelle/HOL proofs, powered by AWS Bedrock.<br/>
-       |Type a message or click <a href='action:insert:$helpId' style='color:$linkColor;text-decoration:none;font-weight:bold;'>:help</a> to see all available commands.
-       |<span style='font-size:10pt;color:$wMuted;'>(Enter sends, Shift+Enter for newline)</span></div>
-       |$modelWarning
-       |</div>""".stripMargin
   }
 
   override def focusOnDefaultComponent(): Unit = chatInput.requestFocus()

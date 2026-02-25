@@ -841,6 +841,49 @@ object AssistantTools {
     firstNonEmpty(List(result.error.getOrElse(""), result.message, result.results))
       .getOrElse(fallback)
 
+  /** Execute an I/Q explore query and return formatted result string.
+    * Encapsulates the common pattern: check IQ availability → call explore → format success/timeout/error.
+    * 
+    * @param query The query type ("proof", "sledgehammer", "find_theorems")
+    * @param arguments Query arguments (e.g., proof text, search pattern)
+    * @param timeoutMs Timeout in milliseconds
+    * @param toolLabel Human-readable label for error messages (e.g., "sledgehammer")
+    * @param successMapper Transform successful result text (default: identity)
+    * @param emptyMessage Message to return when result is empty (default: "<toolLabel> returned no output")
+    * @return Formatted result string
+    */
+  private def execExplore(
+      query: String,
+      arguments: String,
+      timeoutMs: Long,
+      toolLabel: String,
+      successMapper: String => String = identity,
+      emptyMessage: String = ""
+  ): String = {
+    if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    else {
+      IQMcpClient
+        .callExplore(
+          query = query,
+          arguments = arguments,
+          timeoutMs = timeoutMs
+        )
+        .fold(
+          mcpErr => s"Error: $toolLabel failed via I/Q MCP: $mcpErr",
+          explore => {
+            if (explore.success) {
+              val text = explore.results.trim
+              val effectiveEmpty = if (emptyMessage.nonEmpty) emptyMessage 
+                                   else s"$toolLabel returned no output."
+              if (text.nonEmpty && text != "No results") successMapper(text)
+              else effectiveEmpty
+            } else if (explore.timedOut) s"$toolLabel timed out."
+            else s"Error: ${exploreFailureMessage(explore, s"$toolLabel failed")}"
+          }
+        )
+    }
+  }
+
   /** Execute a tool by name. Returns the result as a string. Called from the
     * agentic loop on a background thread. All arguments are sanitized before
     * use to prevent injection or resource exhaustion.
@@ -884,6 +927,7 @@ object AssistantTools {
     }
   }
 
+  /** Read lines from a theory file via I/Q MCP. Returns file content or error message. */
   private def execReadTheory(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -913,6 +957,7 @@ object AssistantTools {
     }
   }
 
+  /** List all open theory files via I/Q MCP. Returns newline-separated theory names. */
   private def execListTheories(): String = {
     IQMcpClient
       .callListFiles(
@@ -930,6 +975,7 @@ object AssistantTools {
       )
   }
 
+  /** Search for text patterns in a theory file. Returns matching lines with line numbers. */
   private def execSearchInTheory(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -972,6 +1018,7 @@ object AssistantTools {
     }
   }
 
+  /** Get current proof goal state at cursor via I/Q MCP. Returns goal text or error. */
   private def execGetGoalState(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else
@@ -989,6 +1036,7 @@ object AssistantTools {
         )
   }
 
+  /** Get local facts and assumptions in scope at cursor. Returns context text or error. */
   private def execGetProofContext(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else
@@ -1009,6 +1057,7 @@ object AssistantTools {
         )
   }
 
+  /** Search for theorems via I/Q find_theorems. Returns matching theorems or error. */
   private def execFindTheorems(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1047,6 +1096,7 @@ object AssistantTools {
     }
   }
 
+  /** Verify a proof method via I/Q MCP. Returns [ok]/[FAIL] with timing or error. */
   private def execVerifyProof(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1074,75 +1124,35 @@ object AssistantTools {
     }
   }
 
-  private def execRunSledgehammer(@unused view: View): String = {
-    if (!IQAvailable.isAvailable) "I/Q plugin not available."
-    else {
-      val timeout = AssistantOptions.getSledgehammerTimeout
-      IQMcpClient
-        .callExplore(
-          query = "sledgehammer",
-          arguments = "",
-          timeoutMs = timeout
-        )
-        .fold(
-          mcpErr => s"Error: sledgehammer failed via I/Q MCP: $mcpErr",
-          explore => {
-            if (explore.success) {
-              val text = explore.results.trim
-              if (text.nonEmpty) text else "No proofs found."
-            } else if (explore.timedOut) "Sledgehammer timed out."
-            else s"Error: ${exploreFailureMessage(explore, "sledgehammer failed")}"
-          }
-        )
-    }
-  }
+  /** Run sledgehammer via I/Q explore. Returns found proof methods or error. */
+  private def execRunSledgehammer(@unused view: View): String =
+    execExplore(
+      query = "sledgehammer",
+      arguments = "",
+      timeoutMs = AssistantOptions.getSledgehammerTimeout,
+      toolLabel = "sledgehammer",
+      emptyMessage = "No proofs found."
+    )
 
-  private def execRunNitpick(@unused view: View): String = {
-    if (!IQAvailable.isAvailable) "I/Q plugin not available."
-    else {
-      val timeout = AssistantOptions.getNitpickTimeout
-      IQMcpClient
-        .callExplore(
-          query = "proof",
-          arguments = "nitpick",
-          timeoutMs = timeout
-        )
-        .fold(
-          mcpErr => s"Error: nitpick failed via I/Q MCP: $mcpErr",
-          explore => {
-            if (explore.success) {
-              val text = explore.results.trim
-              if (text.nonEmpty) text else "Nitpick returned no output."
-            } else if (explore.timedOut) "Nitpick timed out."
-            else s"Error: ${exploreFailureMessage(explore, "nitpick failed")}"
-          }
-        )
-    }
-  }
+  /** Run nitpick counterexample finder via I/Q explore. Returns counterexample or error. */
+  private def execRunNitpick(@unused view: View): String =
+    execExplore(
+      query = "proof",
+      arguments = "nitpick",
+      timeoutMs = AssistantOptions.getNitpickTimeout,
+      toolLabel = "nitpick"
+    )
 
-  private def execRunQuickcheck(@unused view: View): String = {
-    if (!IQAvailable.isAvailable) "I/Q plugin not available."
-    else {
-      val timeout = AssistantOptions.getQuickcheckTimeout
-      IQMcpClient
-        .callExplore(
-          query = "proof",
-          arguments = "quickcheck",
-          timeoutMs = timeout
-        )
-        .fold(
-          mcpErr => s"Error: quickcheck failed via I/Q MCP: $mcpErr",
-          explore => {
-            if (explore.success) {
-              val text = explore.results.trim
-              if (text.nonEmpty) text else "Quickcheck returned no output."
-            } else if (explore.timedOut) "Quickcheck timed out."
-            else s"Error: ${exploreFailureMessage(explore, "quickcheck failed")}"
-          }
-        )
-    }
-  }
+  /** Run quickcheck random testing via I/Q explore. Returns counterexample or error. */
+  private def execRunQuickcheck(@unused view: View): String =
+    execExplore(
+      query = "proof",
+      arguments = "quickcheck",
+      timeoutMs = AssistantOptions.getQuickcheckTimeout,
+      toolLabel = "quickcheck"
+    )
 
+  /** Get type information for term at cursor via I/Q MCP. Returns type text or error. */
   private def execGetType(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else
@@ -1161,6 +1171,7 @@ object AssistantTools {
         )
   }
 
+  /** Get source text of Isabelle command at cursor via I/Q MCP. Returns command text or error. */
   private def execGetCommandText(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else
@@ -1179,6 +1190,7 @@ object AssistantTools {
         )
   }
 
+  /** Get error or warning diagnostics from PIDE. Handles 'cursor', 'all', or specific theory scope. */
   private def execGetDiagnostics(
       args: ResponseParser.ToolArgs,
       view: View,
@@ -1254,6 +1266,7 @@ object AssistantTools {
   ): String =
     execGetDiagnostics(args, view, IQMcpClient.DiagnosticSeverity.Error, "No errors")
 
+  /** Look up definitions for constants/types via I/Q async API. Returns definitions or error. */
   private def execGetDefinitions(
       args: ResponseParser.ToolArgs,
       view: View
@@ -1307,6 +1320,7 @@ object AssistantTools {
     }
   }
 
+  /** Execute a proof step and return resulting state via I/Q MCP. Returns [COMPLETE] or subgoal count + state. */
   private def execExecuteStep(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1350,6 +1364,7 @@ object AssistantTools {
     }
   }
 
+  /** Trace simplifier rewriting via I/Q MCP. Returns detailed trace output or error. */
   private def execTraceSimplifier(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1385,6 +1400,7 @@ object AssistantTools {
     }
   }
 
+  /** Get full proof block (lemma...qed) at cursor via I/Q MCP. Returns proof text or error. */
   private def execGetProofBlock(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else
@@ -1405,6 +1421,7 @@ object AssistantTools {
         )
   }
 
+  /** Get structured context info (in_proof, has_goal, on_error, etc.) via I/Q MCP. Returns key-value summary. */
   private def execGetContextInfo(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else {
@@ -1487,6 +1504,7 @@ object AssistantTools {
     }
   }
 
+  /** Search for text pattern across all open theories. Returns matches with theory:line prefixes. */
   private def execSearchAllTheories(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1535,6 +1553,7 @@ object AssistantTools {
     }
   }
 
+  /** Parse theory imports from file content. Returns dependency list or error. */
   private def execGetDependencies(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1573,12 +1592,14 @@ object AssistantTools {
     }
   }
 
+  /** Get warning messages from PIDE. Delegates to execGetDiagnostics with Warning severity. */
   private def execGetWarnings(
       args: ResponseParser.ToolArgs,
       view: View
   ): String =
     execGetDiagnostics(args, view, IQMcpClient.DiagnosticSeverity.Warning, "No warnings")
 
+  /** Move cursor to specified line in current theory via GUI thread. Returns confirmation or error. */
   private def execSetCursorPosition(
       args: ResponseParser.ToolArgs,
       view: View
@@ -1613,6 +1634,7 @@ object AssistantTools {
     }
   }
 
+  /** Edit theory file via I/Q MCP write_file (insert/replace/delete operations). Returns context or error. */
   private def execEditTheory(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1721,6 +1743,7 @@ object AssistantTools {
     }
   }
 
+  /** Try multiple proof methods in parallel via I/Q verification. Returns [ok]/[FAIL] for each method. */
   private def execTryMethods(
       args: ResponseParser.ToolArgs,
       view: View
@@ -1732,41 +1755,59 @@ object AssistantTools {
       val methods = methodsStr.split(",").map(_.trim).filter(_.nonEmpty).toList
       if (methods.isEmpty) "Error: no valid methods provided"
       else {
-        val results = scala.collection.mutable.ListBuffer[String]()
+        val timeout = AssistantOptions.getVerificationTimeout
+        val latch = new CountDownLatch(methods.length)
+        val results = new java.util.concurrent.ConcurrentHashMap[String, String]()
+
+        // Launch all verification tasks in parallel
         for (method <- methods) {
-          val timeout = AssistantOptions.getVerificationTimeout
-          val latch = new CountDownLatch(1)
-          @volatile var methodResult = ""
-          IQIntegration.verifyProofAsync(
-            view,
-            method,
-            timeout,
-            {
-              case IQIntegration.ProofSuccess(ms, _) =>
-                methodResult = s"[ok] $method (${ms}ms)"
-                latch.countDown()
-              case IQIntegration.ProofFailure(err) =>
-                methodResult = s"[FAIL] $method: ${err.take(50)}"
-                latch.countDown()
-              case IQIntegration.ProofTimeout =>
-                methodResult = s"[TIMEOUT] $method"
-                latch.countDown()
-              case _ =>
-                methodResult = s"[UNAVAILABLE] $method"
-                latch.countDown()
+          GUI_Thread.later {
+            if (AssistantDockable.isCancelled) {
+              results.put(method, s"[CANCELLED] $method")
+              latch.countDown()
+            } else {
+              IQIntegration.verifyProofAsync(
+                view,
+                method,
+                timeout,
+                {
+                  case IQIntegration.ProofSuccess(ms, _) =>
+                    results.put(method, s"[ok] $method (${ms}ms)")
+                    latch.countDown()
+                  case IQIntegration.ProofFailure(err) =>
+                    results.put(method, s"[FAIL] $method: ${err.take(50)}")
+                    latch.countDown()
+                  case IQIntegration.ProofTimeout =>
+                    results.put(method, s"[TIMEOUT] $method")
+                    latch.countDown()
+                  case _ =>
+                    results.put(method, s"[UNAVAILABLE] $method")
+                    latch.countDown()
+                }
+              )
             }
-          )
-          if (!latch.await(timeout + 2000, TimeUnit.MILLISECONDS))
-            results += s"[TIMEOUT] $method"
-          else if (methodResult.isEmpty)
-            results += s"[ERROR] $method returned no result"
-          else results += methodResult
+          }
         }
-        s"Tried ${methods.length} methods:\n${results.mkString("\n")}"
+
+        // Wait for all methods to complete (or timeout)
+        val totalTimeout = timeout * methods.length + 2000
+        if (!latch.await(totalTimeout, TimeUnit.MILLISECONDS)) {
+          // Some methods didn't complete — mark them as timeout
+          methods.foreach { method =>
+            results.putIfAbsent(method, s"[TIMEOUT] $method")
+          }
+        }
+
+        // Return results in the original order
+        val orderedResults = methods.map(m =>
+          results.getOrDefault(m, s"[ERROR] $m returned no result")
+        )
+        s"Tried ${methods.length} methods:\n${orderedResults.mkString("\n")}"
       }
     }
   }
 
+  /** List named entities (lemmas, definitions) in theory via I/Q MCP. Returns line:keyword name list. */
   private def execGetEntities(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1806,6 +1847,7 @@ object AssistantTools {
     }
   }
 
+  /** Create new theory file in current directory via I/Q MCP open_file. Returns confirmation or error. */
   private def execCreateTheory(
       args: ResponseParser.ToolArgs,
       view: View
@@ -1857,6 +1899,7 @@ object AssistantTools {
     }
   }
 
+  /** Open existing theory file via I/Q MCP. Resolves relative paths from current buffer. Returns confirmation or error. */
   private def execOpenTheory(
       args: ResponseParser.ToolArgs,
       view: View
@@ -1920,7 +1963,7 @@ object AssistantTools {
     
     AssistantDockable.setStatus("Waiting for your input...")
     
-    val timeout = 60L
+    val timeout = AssistantConstants.ASK_USER_TIMEOUT_SEC
     var responded = false
     val endTime = System.currentTimeMillis() + timeout * 1000
     while (!responded && !AssistantDockable.isCancelled && System.currentTimeMillis() < endTime) {
@@ -1940,6 +1983,7 @@ object AssistantTools {
     }
   }
 
+  /** Present multiple-choice question to user via widget. Blocks until response or timeout. Returns selected option or error. */
   private def execAskUser(args: ResponseParser.ToolArgs, view: View): String = {
     val question = safeStringArg(args, "question", 500)
     val optionsStr = safeStringArg(args, "options", 1000)
@@ -1957,6 +2001,7 @@ object AssistantTools {
     }
   }
 
+  /** Add task to session task list and inject widget. Returns confirmation. */
   private def execTaskListAdd(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1978,6 +2023,7 @@ object AssistantTools {
     result
   }
 
+  /** Mark task as completed and inject status widget. Returns confirmation or error. */
   private def execTaskListDone(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -1996,6 +2042,7 @@ object AssistantTools {
     result
   }
 
+  /** Mark task as irrelevant and inject status widget. Returns confirmation or error. */
   private def execTaskListIrrelevant(
       args: ResponseParser.ToolArgs,
       @unused view: View
@@ -2014,6 +2061,7 @@ object AssistantTools {
     result
   }
 
+  /** Get next pending task and inject full task list widget. Returns next task details or "no pending tasks". */
   private def execTaskListNext(@unused view: View): String = {
     val result = TaskList.getNextTask()
     
@@ -2028,6 +2076,7 @@ object AssistantTools {
     result
   }
 
+  /** Show all tasks with current statuses via widget injection. Returns summary text. */
   private def execTaskListShow(@unused view: View): String = {
     val result = TaskList.listTasks()
     
@@ -2042,6 +2091,7 @@ object AssistantTools {
     result
   }
 
+  /** Get detailed information for specific task and inject detail widget. Returns task info or error. */
   private def execTaskListGet(
       args: ResponseParser.ToolArgs,
       @unused view: View

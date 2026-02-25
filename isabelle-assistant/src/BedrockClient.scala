@@ -232,7 +232,7 @@ object BedrockClient {
       // System prompt is empty here — invokeChatInternal prepends getSystemPrompt automatically
       // Take atomic snapshot of history before constructing messages to avoid races
       val history =
-        ChatAction.getHistorySnapshot
+        ChatAction.getHistory
           .filterNot(_.transient)
           .flatMap(m => BedrockRole.fromWire(m.role.wireValue).map(ChatTurn(_, m.content)))
       val messages = history :+ ChatTurn(BedrockRole.User, prompt)
@@ -323,7 +323,7 @@ object BedrockClient {
     ErrorHandler.logOperation("invokeInContextStructured") {
       Option(org.gjt.sp.jedit.jEdit.getActiveView).foreach(setCurrentView)
       val history =
-        ChatAction.getHistorySnapshot
+        ChatAction.getHistory
           .filterNot(_.transient)
           .flatMap(m => BedrockRole.fromWire(m.role.wireValue).map(ChatTurn(_, m.content)))
       val messages = history :+ ChatTurn(BedrockRole.User, prompt)

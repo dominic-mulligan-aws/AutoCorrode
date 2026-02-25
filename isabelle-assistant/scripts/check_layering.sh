@@ -253,7 +253,7 @@ for method in "${assistant_tools_mcp_only_methods[@]}"; do
     "AssistantTools.scala" \
     "$method" \
     "$assistant_forbidden" \
-    'IQMcpClient'
+    'IQMcpClient|execExplore'
 done
 
 theory_browser_mcp_only_methods=(

@@ -168,6 +168,10 @@ object WidgetRenderer {
     * @param options list of option strings
     * @param onChoice callback to register actions for each option
     * @return HTML for the prompt widget
+    * 
+    * NOTE: Option selection is click-only. Keyboard-accessible selection
+    * would require JS-like focus management which JEditorPane doesn't support.
+    * Consider migrating to JPanel-based widgets for full keyboard support.
     */
   def askUser(
       question: String,
