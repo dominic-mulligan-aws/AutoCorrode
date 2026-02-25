@@ -634,7 +634,7 @@ class AssistantDockable(view: View, position: String)
       if (message.length > maxInputLength) {
         javax.swing.JOptionPane.showMessageDialog(
           this,
-          s"Message too long (${message.length} chars, max $maxInputLength). Please shorten your message.",
+          s"Message too long (${"%,d".format(message.length)} chars, max ${"%,d".format(maxInputLength)}). Please shorten your message.",
           "Isabelle Assistant",
           javax.swing.JOptionPane.WARNING_MESSAGE
         )

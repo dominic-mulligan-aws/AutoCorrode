@@ -851,7 +851,7 @@ object BedrockClient {
     Output.writeln(s"[Assistant] Prompt length: ${totalLength} chars (system: ${systemPrompt.length}, user: ${prompt.length})")
 
     // Build payload with system prompt
-    val payload = PayloadBuilder.buildChatPayload(modelId, systemPrompt, List(("user", prompt)), temperature, maxTokens)
+    val payload = PayloadBuilder.buildChatPayload(systemPrompt, List(("user", prompt)), temperature, maxTokens)
 
     val request = InvokeModelRequest.builder()
       .modelId(modelId)

@@ -19,17 +19,8 @@ object IQAvailable {
   private val HeartbeatProbeTimeoutMs = 500L      // Fast probe for heartbeat
   private val InitialProbeTimeoutMs = 1000L       // Longer timeout for initial check
   private val HeartbeatIntervalMs = 15000L        // Check every 15 seconds
-  @volatile private var heartbeatScheduled = false
-  
-  private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
-    new java.util.concurrent.ThreadFactory {
-      def newThread(r: Runnable): Thread = {
-        val t = new Thread(r, "iq-heartbeat")
-        t.setDaemon(true)
-        t
-      }
-    }
-  )
+  @volatile private var scheduler: java.util.concurrent.ScheduledExecutorService = null
+  @volatile private var heartbeatFuture: java.util.concurrent.ScheduledFuture[_] = null
 
   private def probe(timeoutMs: Long = HeartbeatProbeTimeoutMs): Boolean = {
     // Use lightweight ping instead of list_files
@@ -40,15 +31,27 @@ object IQAvailable {
     * Called from AssistantPlugin.start().
     */
   def startHeartbeat(): Unit = synchronized {
-    if (!heartbeatScheduled) {
-      heartbeatScheduled = true
+    if (heartbeatFuture == null || heartbeatFuture.isDone) {
+      // Create scheduler if needed
+      if (scheduler == null || scheduler.isShutdown) {
+        scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
+          new java.util.concurrent.ThreadFactory {
+            def newThread(r: Runnable): Thread = {
+              val t = new Thread(r, "iq-heartbeat")
+              t.setDaemon(true)
+              t
+            }
+          }
+        )
+      }
+      
       // Initial probe with longer timeout
       val initial = probe(InitialProbeTimeoutMs)
       _cached = Some(initial)
       logStatus()
       
       // Schedule periodic probes with shorter timeout
-      val _ = scheduler.scheduleWithFixedDelay(
+      heartbeatFuture = scheduler.scheduleWithFixedDelay(
         () => {
           val wasAvailable = _cached.getOrElse(false)
           val nowAvailable = probe(HeartbeatProbeTimeoutMs)
@@ -67,10 +70,11 @@ object IQAvailable {
 
   /** Stop the heartbeat scheduler. Called from AssistantPlugin.stop(). */
   def stopHeartbeat(): Unit = synchronized {
-    if (heartbeatScheduled) {
-      heartbeatScheduled = false
-      val _ = scheduler.shutdownNow()
+    if (heartbeatFuture != null) {
+      heartbeatFuture.cancel(false)
+      heartbeatFuture = null
     }
+    // Don't shutdown the scheduler - leave it ready for restart
   }
 
   def isAvailable: Boolean = _cached match {

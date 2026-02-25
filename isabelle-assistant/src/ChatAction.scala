@@ -271,10 +271,17 @@ object ChatAction {
   }
 
   /** Get the current history as an immutable snapshot. Thread-safe. */
+  /** Get the current history. Since history is an immutable List and the JVM
+    * guarantees atomic reference assignment, this is safe to call concurrently.
+    * Returns the current immutable List reference, which cannot be modified
+    * by concurrent addMessage calls.
+    */
   def getHistory: List[Message] = history
 
-  /** Get an atomic snapshot of the current history. This method name makes it
-    * explicit that we're taking a consistent view.
+  /** Alias for getHistory with an explicit name indicating snapshot semantics.
+    * Both methods return the same immutable List reference - the "snapshot"
+    * terminology emphasizes that subsequent mutations won't affect the
+    * returned list.
     */
   def getHistorySnapshot: List[Message] = history
 

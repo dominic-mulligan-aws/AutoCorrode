@@ -788,6 +788,13 @@ object IQMcpClient {
   private def normalizedToolTimeout(timeoutMs: Long): Long =
     math.max(1L, timeoutMs)
 
+  /** List theory files visible to I/Q.
+    * @param filterOpen if Some(true), only include open buffers; if Some(false), exclude open buffers
+    * @param filterTheory if Some(true), only include .thy files
+    * @param sortBy field to sort by (e.g., "path", "name")
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or structured list result with file metadata
+    */
   def callListFiles(
       filterOpen: Option[Boolean] = None,
       filterTheory: Option[Boolean] = None,
@@ -802,6 +809,13 @@ object IQMcpClient {
       .map(decodeListFilesResult)
   }
 
+  /** Read lines from a file with line numbers prefixed.
+    * @param path absolute path to the file
+    * @param startLine first line to read (1-based), None means line 1
+    * @param endLine last line to read (1-based), None or -1 means last line
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or file content with line numbers (e.g., "42: content")
+    */
   def callReadFileLine(
       path: String,
       startLine: Option[Int],
@@ -818,6 +832,13 @@ object IQMcpClient {
     )
   }
 
+  /** Search for text patterns in a file.
+    * @param path absolute path to the file
+    * @param pattern text pattern to search for (case-insensitive substring match)
+    * @param contextLines number of context lines to include around each match
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or list of matches with line numbers and context
+    */
   def callReadFileSearch(
       path: String,
       pattern: String,
@@ -872,6 +893,15 @@ object IQMcpClient {
       .map(decodeWriteFileResult)
   }
 
+  /** Open a file in jEdit, optionally creating it.
+    * @param path absolute path to the file
+    * @param createIfMissing if true, create file if it doesn't exist
+    * @param inView if true, open the file in a jEdit buffer (not just track it)
+    * @param content initial content when creating a new file
+    * @param overwriteIfExists if true and createIfMissing=true, overwrite existing file
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or open result with creation/overwrite flags
+    */
   def callOpenFile(
       path: String,
       createIfMissing: Boolean,
@@ -899,6 +929,11 @@ object IQMcpClient {
     callTool("resolve_command_target", selectionArgs, timeoutMs)
       .map(decodeResolvedCommandTarget)
 
+  /** Get structured context information at a cursor position or file offset.
+    * @param selectionArgs selection parameters (command_selection, path, offset)
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or context info with proof state, goal, and command metadata
+    */
   def callGetContextInfo(
       selectionArgs: Map[String, Any],
       timeoutMs: Long
@@ -959,6 +994,14 @@ object IQMcpClient {
     callTool("get_definitions", args, timeoutMs).map(decodeDefinitionsResult)
   }
 
+  /** Get error or warning diagnostics from PIDE.
+    * @param severity Error or Warning
+    * @param scope Selection (at cursor) or File (entire file)
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @param selectionArgs selection parameters for Selection scope
+    * @param path file path for File scope
+    * @return Either error message or diagnostics with line numbers and messages
+    */
   def callGetDiagnostics(
       severity: DiagnosticSeverity,
       scope: DiagnosticScope,
@@ -974,6 +1017,13 @@ object IQMcpClient {
     callTool("get_diagnostics", args, timeoutMs).map(decodeDiagnosticsResult)
   }
 
+  /** Execute an I/Q explore query (proof verification, sledgehammer, find_theorems, etc.).
+    * @param query the query type: "proof", "sledgehammer", "find_theorems"
+    * @param arguments arguments for the query (e.g., proof text, search pattern)
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @param extraParams additional parameters (e.g., max_results, selection context)
+    * @return Either error message or explore result with success status and output
+    */
   def callExplore(
       query: String,
       arguments: String,

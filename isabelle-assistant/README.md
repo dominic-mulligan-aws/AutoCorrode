@@ -195,7 +195,7 @@ Tool execution is gated by a per-tool permission system with four levels:
 - `Ask Always`: prompt every time
 - `Deny`: hide tool from the model and reject invocations
 
-Defaults are conservative: read-only tools are `Allow`, I/Q compute tools are `Ask at First Use`, and side-effecting tools (`edit_theory`, `create_theory`, `open_theory`, `web_search`) are `Ask Always`.
+Defaults are conservative: read-only tools are `Allow`, I/Q compute tools are `Ask at First Use`, and side-effecting tools (`edit_theory`, `create_theory`, `open_theory`) are `Ask Always`.
 
 Permission prompts include the target resource and a sanitized argument summary so the user can approve with concrete context. Sensitive argument names (for example `*_token`, `*_secret`, `*_password`) are redacted in the prompt summary.
 
@@ -253,6 +253,19 @@ Commands like `:explain` and `:suggest` accept optional targets:
 - `Theory.thy:10-20` — line range
 - `Theory.thy:lemma_name` — named element
 - `cursor+5`, `cursor-3` — relative offset
+
+## Keyboard Shortcuts
+
+The plugin provides keyboard shortcuts for quick access to common features:
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Shift+P (Cmd+Shift+P on macOS) | Suggest Proof Step |
+| Ctrl+Shift+E (Cmd+Shift+E on macOS) | Explain Code |
+| Ctrl+Shift+H (Cmd+Shift+H on macOS) | Run Sledgehammer |
+| Ctrl+Shift+C (Cmd+Shift+C on macOS) | Focus Chat Input |
+
+These shortcuts can be customized via **Utilities → Global Options → Shortcuts**. If they conflict with existing bindings, jEdit will show a conflict dialog on first use.
 
 ## Configuration
 
