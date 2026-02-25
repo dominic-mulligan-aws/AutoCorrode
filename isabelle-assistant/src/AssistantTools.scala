@@ -2165,7 +2165,7 @@ object AssistantTools {
         case _ => s"color:$taskText;"
       }
       
-      val nextMarker = if (isNext) " <span style='color:$nextIcon;font-size:9pt;'>← next</span>" else ""
+      val nextMarker = if (isNext) s" <span style='color:$nextIcon;font-size:9pt;'>← next</span>" else ""
       
       s"""<div style='margin:2px 0;'>
          |<span style='color:$iconColor;font-weight:bold;margin-right:6px;'>$icon</span>
