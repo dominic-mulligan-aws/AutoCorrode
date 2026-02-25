@@ -25,8 +25,7 @@ class AssistantToolPermissionsOptions
       combo.setSelectedItem(configured)
 
       val displayName = tool.name.split("_").map(_.capitalize).mkString(" ")
-      val description =
-        ToolPermissions.toolDescriptions.getOrElse(tool.name, tool.description)
+      val description = ToolPermissions.getToolDescription(tool.id)
       val tooltipBase = if (tool.name == "ask_user") {
         "This tool allows the assistant to ask you questions. Must always be allowed (locked)."
       } else {
@@ -42,21 +41,26 @@ class AssistantToolPermissionsOptions
 
     val resetButton = new JButton("Reset to Defaults")
     resetButton.addActionListener(_ => {
-      ToolPermissions.resetToDefaults()
-      for ((toolName, combo) <- permissionCombos) {
-        val level = ToolPermissions.getConfiguredLevel(toolName).toDisplayString
-        combo.setSelectedItem(level)
+      // Only update UI - don't write to properties until _save() is called
+      for (tool <- AssistantTools.tools) {
+        permissionCombos.get(tool.name).foreach { combo =>
+          val defaultLevel = ToolPermissions.getDefaultLevel(tool.id)
+          combo.setSelectedItem(defaultLevel.toDisplayString)
+        }
       }
     })
     addComponent("", resetButton)
   }
 
   override def _save(): Unit = {
-    for ((toolName, combo) <- permissionCombos) {
-      val displayLabel =
-        Option(combo.getSelectedItem).map(_.toString).getOrElse("Ask at First Use")
-      ToolPermissions.PermissionLevel.fromDisplayString(displayLabel).foreach {
-        permLevel => ToolPermissions.setConfiguredLevel(toolName, permLevel)
+    // Iterate over tools in canonical order, not map order
+    for (tool <- AssistantTools.tools) {
+      permissionCombos.get(tool.name).foreach { combo =>
+        val displayLabel =
+          Option(combo.getSelectedItem).map(_.toString).getOrElse("Ask at First Use")
+        ToolPermissions.PermissionLevel.fromDisplayString(displayLabel).foreach {
+          permLevel => ToolPermissions.setConfiguredLevel(tool.name, permLevel)
+        }
       }
     }
   }

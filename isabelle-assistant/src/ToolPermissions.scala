@@ -48,12 +48,14 @@ object ToolPermissions {
       case _ => None
     }
     
-    def fromDisplayString(s: String): Option[PermissionLevel] = s match {
-      case "Deny" => Some(Deny)
-      case "Ask Always" => Some(AskAlways)
-      case "Ask at First Use" => Some(AskAtFirstUse)
-      case "Allow" => Some(Allow)
-      case _ => None
+    def fromDisplayString(s: String): Option[PermissionLevel] = {
+      s.trim.toLowerCase match {
+        case "deny" => Some(Deny)
+        case "ask always" => Some(AskAlways)
+        case "ask at first use" => Some(AskAtFirstUse)
+        case "allow" => Some(Allow)
+        case _ => None
+      }
     }
     
     val displayOptions: Array[String] = Array("Deny", "Ask Always", "Ask at First Use", "Allow")
@@ -75,9 +77,9 @@ object ToolPermissions {
   // --- Session State ---
 
   private val sessionLock = new Object()
-  @volatile private var sessionAllowedTools: Set[ToolId] = Set.empty
-  @volatile private var sessionDeniedTools: Set[ToolId] = Set.empty
-  @volatile private var promptChoicesFn: PromptChoicesFn =
+  private var sessionAllowedTools: Set[ToolId] = Set.empty  // guarded by sessionLock
+  private var sessionDeniedTools: Set[ToolId] = Set.empty   // guarded by sessionLock
+  private var promptChoicesFn: PromptChoicesFn =            // guarded by sessionLock
     AssistantTools.promptUserWithChoices
 
   /** Clear session-scoped permission decisions. Called on chat clear and plugin stop. */
@@ -92,17 +94,22 @@ object ToolPermissions {
   private[assistant] def withPromptChoicesForTest[A](
       fn: PromptChoicesFn
   )(body: => A): A = {
-    val previous = promptChoicesFn
-    promptChoicesFn = fn
+    val previous = sessionLock.synchronized {
+      val old = promptChoicesFn
+      promptChoicesFn = fn
+      old
+    }
     try body
-    finally promptChoicesFn = previous
+    finally sessionLock.synchronized { promptChoicesFn = previous }
   }
 
-  private def isSessionAllowed(toolId: ToolId): Boolean =
+  private def isSessionAllowed(toolId: ToolId): Boolean = sessionLock.synchronized {
     sessionAllowedTools.contains(toolId)
+  }
 
-  private def isSessionDenied(toolId: ToolId): Boolean =
+  private def isSessionDenied(toolId: ToolId): Boolean = sessionLock.synchronized {
     sessionDeniedTools.contains(toolId)
+  }
 
   private def setSessionAllowed(toolId: ToolId): Unit = sessionLock.synchronized {
     sessionAllowedTools += toolId
@@ -312,6 +319,14 @@ object ToolPermissions {
     }
   }
 
+  /** Get the default permission level for a tool (before any user customization). */
+  def getDefaultLevel(toolId: ToolId): PermissionLevel =
+    defaultPermissions.getOrElse(toolId, AskAtFirstUse)
+
+  /** Get human-readable description for a tool by ToolId. */
+  def getToolDescription(toolId: ToolId): String =
+    toolDescriptionsById.getOrElse(toolId, "perform this action")
+
   /** Get all tool names with their configured or default permission levels. */
   def getAllToolPermissions: List[(String, PermissionLevel)] = {
     AssistantTools.tools.map { tool =>
@@ -339,18 +354,17 @@ object ToolPermissions {
       toolId: ToolId,
       args: ResponseParser.ToolArgs
   ): PermissionDecision = {
-    // 1. Check session-scoped denials
-    if (isSessionDenied(toolId)) return Denied
-
-    // 2. Get configured level
+    // 1. Get configured level FIRST - this takes precedence
     val level = getConfiguredLevel(toolId)
 
-    // 3. Apply policy
+    // 2. Apply policy based on configured level
     level match {
-      case Deny => Denied
-      case Allow => Allowed
+      case Deny => Denied  // Absolute denial
+      case Allow => Allowed  // Absolute permission
       case AskAtFirstUse =>
-        if (isSessionAllowed(toolId)) Allowed
+        // Check session state for AskAtFirstUse
+        if (isSessionDenied(toolId)) Denied
+        else if (isSessionAllowed(toolId)) Allowed
         else
           NeedPrompt(
             toolId,
@@ -358,7 +372,10 @@ object ToolPermissions {
             summarizeArgs(args)
           )
       case AskAlways =>
-        NeedPrompt(toolId, extractResource(toolId, args), summarizeArgs(args))
+        // For AskAlways, respect session-allow if user explicitly chose it
+        // but always prompt if not session-allowed
+        if (isSessionAllowed(toolId)) Allowed
+        else NeedPrompt(toolId, extractResource(toolId, args), summarizeArgs(args))
     }
   }
 
@@ -406,7 +423,7 @@ object ToolPermissions {
     val context = contextLines.mkString("\n")
     val options =
       if (level == AskAlways)
-        List("Allow Once", "Deny (for this session)")
+        List("Allow (for this session)", "Allow Once", "Deny Once")
       else
         List(
           "Allow (for this session)",
@@ -414,8 +431,11 @@ object ToolPermissions {
           "Deny (for this session)"
         )
     
+    // Capture the prompt function under lock to avoid race conditions
+    val choicesFn = sessionLock.synchronized { promptChoicesFn }
+    
     // Reuse the exact same prompt mechanism as execAskUser
-    promptChoicesFn(question, options, context, view) match {
+    choicesFn(question, options, context, view) match {
       case Some(choice) =>
         choice match {
           case "Allow (for this session)" =>
@@ -428,6 +448,9 @@ object ToolPermissions {
           case "Deny (for this session)" =>
             setSessionDenied(toolId)
             safeLog(s"[Permissions] User denied '$toolName' for session")
+            Denied
+          case "Deny Once" =>
+            safeLog(s"[Permissions] User denied '$toolName' once")
             Denied
           case _ =>
             safeLog(s"[Permissions] Unexpected choice for '$toolName': $choice")
