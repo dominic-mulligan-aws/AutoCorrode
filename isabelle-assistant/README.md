@@ -238,16 +238,18 @@ The table below is a representative subset; the complete toolset in the current 
 
 | Tool | Description |
 |------|-------------|
-| `read_theory` | Read lines from an open theory file |
+| `read_theory` | Read lines from an open theory file (auto-truncates large files) |
 | `list_theories` | List all open theory files |
-| `search_in_theory` | Search for patterns in a theory |
-| `get_context_info` | Get structured proof/goal context at the cursor |
-| `get_goal_state` | Get the current proof goal text (convenience view) |
+| `search_theories` | Search for patterns in theory files with flexible scoping |
+| `get_context_info` | Get structured proof/goal context at the cursor (supports quick mode) |
+| `get_goal_state` | Get the current proof goal text |
 | `get_proof_block` | Get the enclosing proof block at the cursor |
 | `get_proof_context` | Get local facts and assumptions |
 | `find_theorems` | Search for library theorems (I/Q) |
+| `get_diagnostics` | Get error or warning messages with count-only mode |
 | `verify_proof` | Verify a proof method (I/Q) |
 | `run_sledgehammer` | Run automated proof search (I/Q) |
+| `find_counterexample` | Search for counterexamples using nitpick or quickcheck (I/Q) |
 
 Implementation note: assistant tool names are stable user-facing abstractions. Internally they route to canonical I/Q MCP capabilities (`get_context_info`, scoped `get_proof_blocks`, and `open_file` creation mode), without assistant-side reimplementation of Isabelle runtime semantics.
 

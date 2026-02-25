@@ -8,7 +8,7 @@ Isabelle Assistant is a jEdit plugin written in Scala 3 that integrates AWS Bedr
 
 Isabelle Assistant owns UI and model orchestration. Isabelle-proof execution semantics must be owned by I/Q capabilities.
 
-- In `AssistantTools`, the migrated proof tools (`find_theorems`, `verify_proof`, `run_sledgehammer`, `run_nitpick`, `run_quickcheck`, `execute_step`, `trace_simplifier`) must remain MCP-only and route through `IQMcpClient`.
+- In `AssistantTools`, the migrated proof tools (`find_theorems`, `verify_proof`, `run_sledgehammer`, `find_counterexample`, `execute_step`, `trace_simplifier`) must remain MCP-only and route through `IQMcpClient`.
 - In `IQIntegration`, migrated proof-query APIs (`verifyProofAsync`, `runSledgehammerAsync`, `runFindTheoremsAsync`, `runQueryAsync`, `executeStepAsync`) must remain MCP-only and route through `IQMcpClient`.
 - Do not add local fallback logic for those tools via `IQIntegration` or `Extended_Query_Operation`.
 - If a capability is missing in I/Q, add it to I/Q rather than re-implementing runtime semantics in Assistant.
@@ -61,9 +61,15 @@ Three thread contexts are used:
 
 ## Adding a New Tool (for Anthropic tool-use)
 
-1. Add a `ToolDef` to the `tools` list in `AssistantTools.scala`.
-2. Add a `case "tool_name" =>` handler in `AssistantTools.executeTool`.
-3. Sanitize all input arguments using `safeStringArg` / `safeTheoryArg`.
+1. Add a new case to `enum ToolId` in `ToolId.scala` with a unique wire name.
+2. Add a `ToolDef` to the `tools` list in `AssistantTools.scala` using the new `ToolId`.
+3. Add the handler function to the `toolHandlers` map in `AssistantTools.scala`:
+   ```scala
+   ToolId.MyNewTool -> ((args, view) => execMyNewTool(args, view))
+   ```
+4. Add the tool to `defaultPermissions` and `toolDescriptionsById` in `ToolPermissions.scala`.
+5. Add test coverage in `ToolIdTest.scala`, `AssistantToolsTest.scala`, and `ToolPermissionsTest.scala`.
+6. Sanitize all input arguments using `safeStringArg` / `safeTheoryArg` / `optionalIntArg` / `boolArg`.
 
 ## Customizing the System Prompt
 
