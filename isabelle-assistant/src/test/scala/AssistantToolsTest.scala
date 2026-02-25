@@ -511,6 +511,66 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     }
   }
 
+  test("safeTheoryArg should reject empty theory names") {
+    AssistantTools.isValidCreateTheoryName("") shouldBe false
+  }
+
+  test("safeTheoryArg should reject invalid characters") {
+    AssistantTools.isValidCreateTheoryName("Foo/../Bar") shouldBe false
+    AssistantTools.isValidCreateTheoryName("Foo/Bar") shouldBe false
+  }
+
+  test("isValidCreateTheoryName should accept valid names") {
+    AssistantTools.isValidCreateTheoryName("Foo") shouldBe true
+    AssistantTools.isValidCreateTheoryName("Foo_Bar") shouldBe true
+    AssistantTools.isValidCreateTheoryName("Foo'") shouldBe true
+    AssistantTools.isValidCreateTheoryName("Foo123") shouldBe true
+  }
+
+  test("isValidCreateTheoryName should reject names starting with numbers") {
+    AssistantTools.isValidCreateTheoryName("123Foo") shouldBe false
+  }
+
+  test("isValidCreateTheoryName should reject special characters") {
+    AssistantTools.isValidCreateTheoryName("Foo-Bar") shouldBe false
+    AssistantTools.isValidCreateTheoryName("Foo.Bar") shouldBe false
+    AssistantTools.isValidCreateTheoryName("Foo@Bar") shouldBe false
+  }
+
+  test("normalizeReadRange should clamp to valid line window") {
+    val (start, end) = AssistantTools.normalizeReadRange(100, 1, 50)
+    start shouldBe 1
+    end shouldBe 50
+  }
+
+  test("normalizeReadRange should handle start beyond total") {
+    val (start, end) = AssistantTools.normalizeReadRange(50, 100, 200)
+    start shouldBe 50
+    end shouldBe 50
+  }
+
+  test("normalizeReadRange should handle negative or zero end as last line") {
+    val (start, end) = AssistantTools.normalizeReadRange(100, 1, 0)
+    start shouldBe 1
+    end shouldBe 100
+  }
+
+  test("normalizeReadRange should ensure start <= end") {
+    val (start, end) = AssistantTools.normalizeReadRange(100, 50, 30)
+    start shouldBe 50
+    end shouldBe 50
+  }
+
+  test("clampOffset should keep offset inside bounds") {
+    AssistantTools.clampOffset(50, 100) shouldBe 50
+    AssistantTools.clampOffset(-10, 100) shouldBe 0
+    AssistantTools.clampOffset(150, 100) shouldBe 100
+  }
+
+  test("clampOffset should handle zero-length buffer") {
+    AssistantTools.clampOffset(10, 0) shouldBe 0
+  }
+
   test("filtered tool schemas should preserve enum constraints for constrained params") {
     val sw = new StringWriter()
     val g = new JsonFactory().createGenerator(sw)

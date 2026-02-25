@@ -6,10 +6,23 @@ package isabelle.assistant
 /**
  * Renders HTML for conversation message bubbles in the chat panel.
  * Extracted from AssistantDockable to separate rendering concerns from UI lifecycle.
+ * 
+ * All rendered bubbles use a white background to ensure compatibility with LaTeX math
+ * rendering (which generates white-background images). The left border color varies by role.
  */
 object ConversationRenderer {
 
-  /** Shared chat bubble wrapper used by user, assistant, and tool message renderers. */
+  /** Shared chat bubble wrapper used by user, assistant, and tool message renderers.
+    * 
+    * Creates a styled message bubble with role-specific border color, header with timestamp,
+    * body content, and optional copy button. All bubbles use white background for LaTeX compatibility.
+    * 
+    * @param border Hex color string for the left border (role indicator)
+    * @param headerHtml Pre-rendered HTML for the message header (role name + timestamp)
+    * @param bodyHtml Pre-rendered HTML for the message body content
+    * @param copyContent Optional raw text content for the copy button
+    * @return Complete HTML for the message bubble
+    */
   def messageBubbleHtml(
       border: String,
       headerHtml: String,
@@ -31,6 +44,15 @@ object ConversationRenderer {
        |</div>""".stripMargin
   }
 
+  /** Create HTML for a user message bubble.
+    * 
+    * Renders with blue left border, "You" header, and Markdown-processed body.
+    * Includes a copy button for the raw message content.
+    * 
+    * @param content The user's message text (will be processed as Markdown)
+    * @param timestamp Formatted timestamp string (HH:mm)
+    * @return Complete HTML for the user message bubble
+    */
   def createUserMessageHtml(
       content: String,
       timestamp: String
@@ -45,6 +67,18 @@ object ConversationRenderer {
     )
   }
 
+  /** Create HTML for an assistant message bubble.
+    * 
+    * Renders with purple left border for normal messages, red for errors. Processes Markdown
+    * with clickable Isabelle code blocks, handles {{INSERT:id}} and {{ACTION:id:label}} placeholders,
+    * and includes a copy button.
+    * 
+    * @param content The assistant's message text (Markdown or raw HTML)
+    * @param timestamp Formatted timestamp string (HH:mm)
+    * @param rawHtml If true, content is already HTML and should not be processed
+    * @param registerAction Function to register insert actions and return their IDs
+    * @return Complete HTML for the assistant message bubble
+    */
   def createAssistantMessageHtml(
       content: String,
       timestamp: String,
@@ -83,7 +117,16 @@ object ConversationRenderer {
     )
   }
 
-  /** Create HTML for a tool-use message. Parameters shown inline only. */
+  /** Create HTML for a tool-use message.
+    * 
+    * Displays the tool being called with its parameters in a compact format with teal border.
+    * Tool names are converted from snake_case to PascalCase for readability.
+    * 
+    * @param toolName The tool's wire name (e.g., "read_theory")
+    * @param params Tool arguments as parsed ToolArgs map
+    * @param timestamp Formatted timestamp string (HH:mm)
+    * @return Complete HTML for the tool message bubble
+    */
   def createToolMessageHtml(
       toolName: String,
       params: ResponseParser.ToolArgs,
@@ -117,6 +160,14 @@ object ConversationRenderer {
     )
   }
 
+  /** Create HTML for the welcome message shown when chat is empty.
+    * 
+    * Displays a friendly introduction with a clickable :help button and a warning banner
+    * if no model is configured. Uses warm amber/yellow tones for a welcoming appearance.
+    * 
+    * @param registerHelpAction Function to register the :help command action and return its ID
+    * @return Complete HTML for the welcome message
+    */
   def createWelcomeHtml(registerHelpAction: () => String): String = {
     val helpId = registerHelpAction()
     val wBg = UIColors.Welcome.background

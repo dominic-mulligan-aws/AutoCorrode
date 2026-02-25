@@ -19,6 +19,7 @@ class AssistantPlugin extends EBPlugin {
     AssistantDockable.shutdown()
     ToolPermissions.clearSession()
     BedrockClient.cleanup()
+    IQMcpClient.closePool()
     ErrorHandler.cleanupAll()
     VerificationCache.clear()
     PromptLoader.clearCache()

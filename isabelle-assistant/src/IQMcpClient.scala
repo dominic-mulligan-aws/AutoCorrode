@@ -23,6 +23,13 @@ import scala.util.control.NonFatal
   */
 object IQMcpClient {
 
+  /** Type of I/Q explore query. */
+  enum ExploreQueryType(val wire: String) {
+    case Proof extends ExploreQueryType("proof")
+    case Sledgehammer extends ExploreQueryType("sledgehammer")
+    case FindTheorems extends ExploreQueryType("find_theorems")
+  }
+
   /** Result from an I/Q explore query (proof verification, sledgehammer, find_theorems).
     * @param success Whether the query completed successfully
     * @param results Query output text (proof state, found theorems, etc.)
@@ -380,6 +387,132 @@ object IQMcpClient {
   private val connectTimeoutMs = 250
   private val minSocketTimeoutMs = 1000
 
+  /** Connection pool for persistent TCP connection to I/Q MCP server.
+    * Reuses connections to avoid per-call socket overhead (250ms per connect).
+    * Falls back to fresh connection on any I/O error.
+    */
+  private class ConnectionPool {
+    private val lock = new java.util.concurrent.locks.ReentrantLock()
+    @volatile private var connection: Option[(Socket, BufferedReader, PrintWriter)] = None
+    @volatile private var lastUsedMs = 0L
+    private val keepaliveIntervalMs = 30000L // 30 seconds
+    
+    def withConnection[T](f: (BufferedReader, PrintWriter) => T): T = {
+      lock.lock()
+      try {
+        // Check if connection is stale or needs keepalive
+        val now = System.currentTimeMillis()
+        if (connection.isDefined && now - lastUsedMs > keepaliveIntervalMs) {
+          // Send keepalive ping
+          if (!pingExistingConnection()) {
+            closeQuietly()
+            connection = None
+          }
+        }
+        
+        // Get or create connection
+        val (socket, reader, writer) = connection match {
+          case Some(conn) => conn
+          case None =>
+            val newSocket = new Socket()
+            newSocket.connect(
+              new InetSocketAddress(host, AssistantConstants.DEFAULT_MCP_PORT),
+              connectTimeoutMs
+            )
+            newSocket.setSoTimeout(minSocketTimeoutMs)
+            val newReader = new BufferedReader(
+              new InputStreamReader(newSocket.getInputStream, StandardCharsets.UTF_8)
+            )
+            val newWriter = new PrintWriter(
+              new OutputStreamWriter(newSocket.getOutputStream, StandardCharsets.UTF_8),
+              true
+            )
+            val conn = (newSocket, newReader, newWriter)
+            connection = Some(conn)
+            conn
+        }
+        
+        try {
+          lastUsedMs = System.currentTimeMillis()
+          f(reader, writer)
+        } catch {
+          case ex: java.io.IOException =>
+            // I/O error - close and discard connection, then retry once with fresh connection
+            closeQuietly()
+            connection = None
+            
+            val freshSocket = new Socket()
+            freshSocket.connect(
+              new InetSocketAddress(host, AssistantConstants.DEFAULT_MCP_PORT),
+              connectTimeoutMs
+            )
+            freshSocket.setSoTimeout(minSocketTimeoutMs)
+            val freshReader = new BufferedReader(
+              new InputStreamReader(freshSocket.getInputStream, StandardCharsets.UTF_8)
+            )
+            val freshWriter = new PrintWriter(
+              new OutputStreamWriter(freshSocket.getOutputStream, StandardCharsets.UTF_8),
+              true
+            )
+            connection = Some((freshSocket, freshReader, freshWriter))
+            lastUsedMs = System.currentTimeMillis()
+            
+            try {
+              f(freshReader, freshWriter)
+            } catch {
+              case ex2: Exception =>
+                closeQuietly()
+                connection = None
+                throw ex2
+            }
+        }
+      } finally {
+        lock.unlock()
+      }
+    }
+    
+    private def pingExistingConnection(): Boolean = {
+      connection match {
+        case Some((_, reader, writer)) =>
+          try {
+            val tokenOpt = authTokenFromEnv()
+            val request = Map(
+              "jsonrpc" -> "2.0",
+              "id" -> nextRequestId(),
+              "method" -> "ping"
+            ) ++ tokenOpt.map("auth_token" -> _)
+            
+            writer.println(JSON.Format(request))
+            val response = reader.readLine()
+            response != null && parseToolCallResponse(response, None).isRight
+          } catch {
+            case NonFatal(_) => false
+          }
+        case None => false
+      }
+    }
+    
+    private def closeQuietly(): Unit = {
+      connection.foreach { case (socket, reader, writer) =>
+        try writer.close() catch { case NonFatal(_) => () }
+        try reader.close() catch { case NonFatal(_) => () }
+        try socket.close() catch { case NonFatal(_) => () }
+      }
+    }
+    
+    def close(): Unit = {
+      lock.lock()
+      try {
+        closeQuietly()
+        connection = None
+      } finally {
+        lock.unlock()
+      }
+    }
+  }
+  
+  private val connectionPool = new ConnectionPool()
+
   private def nextRequestId(): String =
     s"assistant-${requestCounter.incrementAndGet()}"
 
@@ -573,39 +706,16 @@ object IQMcpClient {
       case None => baseRequest
     }
 
-    val socketTimeoutMs = {
-      val raw = timeoutMs + AssistantConstants.TIMEOUT_BUFFER_MS
-      val bounded = math.max(minSocketTimeoutMs.toLong, math.min(raw, Int.MaxValue.toLong))
-      bounded.toInt
-    }
-
-    var socket: Socket = null
-    var reader: BufferedReader = null
-    var writer: PrintWriter = null
-
     try {
-      socket = new Socket()
-      socket.connect(
-        new InetSocketAddress(host, AssistantConstants.DEFAULT_MCP_PORT),
-        connectTimeoutMs
-      )
-      socket.setSoTimeout(socketTimeoutMs)
+      connectionPool.withConnection { (reader, writer) =>
+        writer.println(JSON.Format(request))
+        val responseLine = reader.readLine()
 
-      reader = new BufferedReader(
-        new InputStreamReader(socket.getInputStream, StandardCharsets.UTF_8)
-      )
-      writer = new PrintWriter(
-        new OutputStreamWriter(socket.getOutputStream, StandardCharsets.UTF_8),
-        true
-      )
-
-      writer.println(JSON.Format(request))
-      val responseLine = reader.readLine()
-
-      if (responseLine == null) {
-        Left("I/Q MCP server closed connection without a response")
-      } else {
-        parseToolCallResponse(responseLine, Some(toolName))
+        if (responseLine == null) {
+          Left("I/Q MCP server closed connection without a response")
+        } else {
+          parseToolCallResponse(responseLine, Some(toolName))
+        }
       }
     } catch {
       case NonFatal(ex) =>
@@ -615,20 +725,12 @@ object IQMcpClient {
             Some(toolName)
           )
         )
-    } finally {
-      if (writer != null) {
-        try writer.close()
-        catch { case NonFatal(_) => () }
-      }
-      if (reader != null) {
-        try reader.close()
-        catch { case NonFatal(_) => () }
-      }
-      if (socket != null) {
-        try socket.close()
-        catch { case NonFatal(_) => () }
-      }
     }
+  }
+  
+  /** Close the connection pool. Called from plugin shutdown. */
+  def closePool(): Unit = {
+    connectionPool.close()
   }
 
   private def boolField(payload: Map[String, Any], key: String, default: Boolean): Boolean =
@@ -1180,21 +1282,21 @@ object IQMcpClient {
   }
 
   /** Execute an I/Q explore query (proof verification, sledgehammer, find_theorems, etc.).
-    * @param query the query type: "proof", "sledgehammer", "find_theorems"
+    * @param query the query type (Proof, Sledgehammer, or FindTheorems)
     * @param arguments arguments for the query (e.g., proof text, search pattern)
     * @param timeoutMs MCP call timeout in milliseconds
     * @param extraParams additional parameters (e.g., max_results, selection context)
     * @return Either error message or explore result with success status and output
     */
   def callExplore(
-      query: String,
+      query: ExploreQueryType,
       arguments: String,
       timeoutMs: Long,
       extraParams: Map[String, Any] = Map.empty
   ): Either[String, ExploreResult] = {
     val args =
       Map(
-        "query" -> query,
+        "query" -> query.wire,
         "command_selection" -> "current",
         "arguments" -> arguments
       ) ++ extraParams
@@ -1205,6 +1307,7 @@ object IQMcpClient {
   /** Lightweight ping to check if the I/Q MCP server is responsive.
     * Uses a dedicated JSON-RPC method that doesn't touch any Isabelle state.
     * Returns true if the server responds with ok status, false otherwise.
+    * Opens a fresh connection (not pooled) to avoid blocking the pool.
     */
   def ping(timeoutMs: Long = 500L): Boolean = {
     try {

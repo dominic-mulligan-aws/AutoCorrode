@@ -658,6 +658,59 @@ class AssistantDockable(view: View, position: String)
     statusLabel.setText(VerificationBadge.toStatus(badge))
   }
 
+  /** Render a single chat message to HTML. Shared by incremental and full render. */
+  private def renderSingleMessage(
+      msg: ChatAction.Message,
+      registerAction: String => String
+  ): String = {
+    msg.role match {
+      case ChatAction.User =>
+        ConversationRenderer.createUserMessageHtml(
+          msg.content,
+          ChatAction.formatTime(msg.timestamp)
+        )
+      case ChatAction.Widget =>
+        msg.content // Widget role: raw HTML, no wrapper
+      case ChatAction.Tool =>
+        // Parse tool message content: "toolName|||{json params}"
+        val parts = msg.content.split("\\|\\|\\|", 2)
+        if (parts.length == 2) {
+          try {
+            val toolName = parts(0)
+            val paramsJson = parts(1)
+            val params =
+              ResponseParser.parseToolArgsJsonObject(paramsJson)
+            ConversationRenderer.createToolMessageHtml(
+              toolName,
+              params,
+              ChatAction.formatTime(msg.timestamp)
+            )
+          } catch {
+            case _: Exception =>
+              ConversationRenderer.createAssistantMessageHtml(
+                msg.content,
+                ChatAction.formatTime(msg.timestamp),
+                msg.rawHtml,
+                registerAction
+              )
+          }
+        } else
+          ConversationRenderer.createAssistantMessageHtml(
+            msg.content,
+            ChatAction.formatTime(msg.timestamp),
+            msg.rawHtml,
+            registerAction
+          )
+      case _ =>
+        ConversationRenderer.createAssistantMessageHtml(
+          msg.content,
+          ChatAction.formatTime(msg.timestamp),
+          msg.rawHtml,
+          registerAction
+        )
+    }
+  }
+
   def displayConversation(history: List[ChatAction.Message]): Unit =
     displayLock.synchronized {
       badgeContainer.setVisible(false)
@@ -680,54 +733,7 @@ class AssistantDockable(view: View, position: String)
             InsertHelper.createInsertAction(view, code)
           )
         val newMessages = history.drop(renderedMessageCount)
-        val newHtml = newMessages.map { msg =>
-          msg.role match {
-            case ChatAction.User =>
-              ConversationRenderer.createUserMessageHtml(
-                msg.content,
-                ChatAction.formatTime(msg.timestamp)
-              )
-            case ChatAction.Widget =>
-              msg.content // Widget role: raw HTML, no wrapper
-            case ChatAction.Tool =>
-              // Parse tool message content: "toolName|||{json params}"
-              val parts = msg.content.split("\\|\\|\\|", 2)
-              if (parts.length == 2) {
-                try {
-                  val toolName = parts(0)
-                  val paramsJson = parts(1)
-                  val params =
-                    ResponseParser.parseToolArgsJsonObject(paramsJson)
-                  ConversationRenderer.createToolMessageHtml(
-                    toolName,
-                    params,
-                    ChatAction.formatTime(msg.timestamp)
-                  )
-                } catch {
-                  case _: Exception =>
-                    ConversationRenderer.createAssistantMessageHtml(
-                      msg.content,
-                      ChatAction.formatTime(msg.timestamp),
-                      msg.rawHtml,
-                      registerAction
-                    )
-                }
-              } else
-                ConversationRenderer.createAssistantMessageHtml(
-                  msg.content,
-                  ChatAction.formatTime(msg.timestamp),
-                  msg.rawHtml,
-                  registerAction
-                )
-            case _ =>
-              ConversationRenderer.createAssistantMessageHtml(
-                msg.content,
-                ChatAction.formatTime(msg.timestamp),
-                msg.rawHtml,
-                registerAction
-              )
-          }
-        }.mkString
+        val newHtml = newMessages.map(renderSingleMessage(_, registerAction)).mkString
 
         val doc =
           htmlPane.getDocument.asInstanceOf[javax.swing.text.html.HTMLDocument]
@@ -765,52 +771,7 @@ class AssistantDockable(view: View, position: String)
       AssistantDockable.registerAction(
         InsertHelper.createInsertAction(view, code)
       )
-    val htmlContent = history.map { msg =>
-      msg.role match {
-        case ChatAction.User =>
-          ConversationRenderer.createUserMessageHtml(
-            msg.content,
-            ChatAction.formatTime(msg.timestamp)
-          )
-        case ChatAction.Widget =>
-          msg.content // Widget role: raw HTML, no wrapper
-        case ChatAction.Tool =>
-          val parts = msg.content.split("\\|\\|\\|", 2)
-          if (parts.length == 2) {
-            try {
-              val toolName = parts(0)
-              val paramsJson = parts(1)
-              val params = ResponseParser.parseToolArgsJsonObject(paramsJson)
-              ConversationRenderer.createToolMessageHtml(
-                toolName,
-                params,
-                ChatAction.formatTime(msg.timestamp)
-              )
-            } catch {
-              case _: Exception =>
-                ConversationRenderer.createAssistantMessageHtml(
-                  msg.content,
-                  ChatAction.formatTime(msg.timestamp),
-                  msg.rawHtml,
-                  registerAction
-                )
-            }
-          } else
-            ConversationRenderer.createAssistantMessageHtml(
-              msg.content,
-              ChatAction.formatTime(msg.timestamp),
-              msg.rawHtml,
-              registerAction
-            )
-        case _ =>
-          ConversationRenderer.createAssistantMessageHtml(
-            msg.content,
-            ChatAction.formatTime(msg.timestamp),
-            msg.rawHtml,
-            registerAction
-          )
-      }
-    }.mkString
+    val htmlContent = history.map(renderSingleMessage(_, registerAction)).mkString
 
     val fullHtml = s"""<html><head><style>
       |body { font-family: 'Segoe UI', 'Helvetica Neue', sans-serif; font-size: 12pt;

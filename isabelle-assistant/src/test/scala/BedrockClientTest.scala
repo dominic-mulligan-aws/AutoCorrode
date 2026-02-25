@@ -95,4 +95,40 @@ class BedrockClientTest extends AnyFunSuite with Matchers {
     pruned should have length 1
     pruned.head._2 should include("truncated due to context budget")
   }
+
+
+  test("mergeConsecutiveRoles should merge same-role messages") {
+    val messages = List(
+      ("user", "Message 1"),
+      ("user", "Message 2"),
+      ("assistant", "Response")
+    )
+    val merged = BedrockClient.mergeConsecutiveRoles(messages)
+    merged should have length 2
+    merged.head._1 shouldBe "user"
+    merged.head._2 should include("Message 1")
+    merged.head._2 should include("Message 2")
+  }
+
+  test("mergeConsecutiveRoles should preserve alternating roles") {
+    val messages = List(
+      ("user", "Question"),
+      ("assistant", "Answer"),
+      ("user", "Follow-up")
+    )
+    val merged = BedrockClient.mergeConsecutiveRoles(messages)
+    merged should have length 3
+  }
+
+  test("mergeConsecutiveRoles should handle empty list") {
+    val merged = BedrockClient.mergeConsecutiveRoles(Nil)
+    merged shouldBe empty
+  }
+
+  test("mergeConsecutiveRoles should handle single message") {
+    val messages = List(("user", "Only message"))
+    val merged = BedrockClient.mergeConsecutiveRoles(messages)
+    merged should have length 1
+    merged.head shouldBe messages.head
+  }
 }
