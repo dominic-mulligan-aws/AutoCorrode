@@ -9,6 +9,7 @@ import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.Locale
 import scala.annotation.unused
 import scala.util.control.NonFatal
+import scala.jdk.CollectionConverters._
 import software.amazon.awssdk.thirdparty.jackson.core.JsonGenerator
 
 /** Tool definitions and execution for LLM tool use (Anthropic function
@@ -844,21 +845,23 @@ object AssistantTools {
   /** Execute an I/Q explore query and return formatted result string.
     * Encapsulates the common pattern: check IQ availability → call explore → format success/timeout/error.
     * 
-    * @param query The query type ("proof", "sledgehammer", "find_theorems")
+    * @param query The query type (Proof, Sledgehammer, or FindTheorems)
     * @param arguments Query arguments (e.g., proof text, search pattern)
     * @param timeoutMs Timeout in milliseconds
     * @param toolLabel Human-readable label for error messages (e.g., "sledgehammer")
     * @param successMapper Transform successful result text (default: identity)
     * @param emptyMessage Message to return when result is empty (default: "<toolLabel> returned no output")
+    * @param extraParams Additional parameters for the explore query (e.g., max_results)
     * @return Formatted result string
     */
   private def execExplore(
-      query: String,
+      query: IQMcpClient.ExploreQueryType,
       arguments: String,
       timeoutMs: Long,
       toolLabel: String,
       successMapper: String => String = identity,
-      emptyMessage: String = ""
+      emptyMessage: String = "",
+      extraParams: Map[String, Any] = Map.empty
   ): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else {
@@ -866,7 +869,8 @@ object AssistantTools {
         .callExplore(
           query = query,
           arguments = arguments,
-          timeoutMs = timeoutMs
+          timeoutMs = timeoutMs,
+          extraParams = extraParams
         )
         .fold(
           mcpErr => s"Error: $toolLabel failed via I/Q MCP: $mcpErr",
@@ -1064,7 +1068,6 @@ object AssistantTools {
   ): String = {
     val pattern = safeStringArg(args, "pattern", MAX_PATTERN_ARG_LENGTH)
     if (pattern.isEmpty) "Error: pattern required"
-    else if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else {
       val max = math.min(
         AssistantConstants.MAX_FIND_THEOREMS_RESULTS,
@@ -1074,25 +1077,14 @@ object AssistantTools {
       val quoted =
         if (pattern.startsWith("\"")) pattern else s"\"$pattern\""
 
-      IQMcpClient
-        .callExplore(
-          query = "find_theorems",
-          arguments = quoted,
-          timeoutMs = timeout,
-          extraParams = Map("max_results" -> max)
-        )
-        .fold(
-          mcpErr => s"Error: find_theorems failed via I/Q MCP: $mcpErr",
-          explore => {
-            if (explore.success) {
-              val text = explore.results.trim
-              if (text.nonEmpty && text != "No results") text
-              else s"No theorems found for: $pattern"
-            } else if (explore.timedOut) "find_theorems timed out."
-            else
-              s"Error: ${exploreFailureMessage(explore, "find_theorems failed")}"
-          }
-        )
+      execExplore(
+        query = IQMcpClient.ExploreQueryType.FindTheorems,
+        arguments = quoted,
+        timeoutMs = timeout,
+        toolLabel = "find_theorems",
+        emptyMessage = s"No theorems found for: $pattern",
+        extraParams = Map("max_results" -> max)
+      )
     }
   }
 
@@ -1108,7 +1100,7 @@ object AssistantTools {
       val timeout = AssistantOptions.getVerificationTimeout
       IQMcpClient
         .callExplore(
-          query = "proof",
+          query = IQMcpClient.ExploreQueryType.Proof,
           arguments = proof,
           timeoutMs = timeout
         )
@@ -1127,7 +1119,7 @@ object AssistantTools {
   /** Run sledgehammer via I/Q explore. Returns found proof methods or error. */
   private def execRunSledgehammer(@unused view: View): String =
     execExplore(
-      query = "sledgehammer",
+      query = IQMcpClient.ExploreQueryType.Sledgehammer,
       arguments = "",
       timeoutMs = AssistantOptions.getSledgehammerTimeout,
       toolLabel = "sledgehammer",
@@ -1137,7 +1129,7 @@ object AssistantTools {
   /** Run nitpick counterexample finder via I/Q explore. Returns counterexample or error. */
   private def execRunNitpick(@unused view: View): String =
     execExplore(
-      query = "proof",
+      query = IQMcpClient.ExploreQueryType.Proof,
       arguments = "nitpick",
       timeoutMs = AssistantOptions.getNitpickTimeout,
       toolLabel = "nitpick"
@@ -1146,7 +1138,7 @@ object AssistantTools {
   /** Run quickcheck random testing via I/Q explore. Returns counterexample or error. */
   private def execRunQuickcheck(@unused view: View): String =
     execExplore(
-      query = "proof",
+      query = IQMcpClient.ExploreQueryType.Proof,
       arguments = "quickcheck",
       timeoutMs = AssistantOptions.getQuickcheckTimeout,
       toolLabel = "quickcheck"
@@ -1266,7 +1258,7 @@ object AssistantTools {
   ): String =
     execGetDiagnostics(args, view, IQMcpClient.DiagnosticSeverity.Error, "No errors")
 
-  /** Look up definitions for constants/types via I/Q async API. Returns definitions or error. */
+  /** Look up definitions for constants/types via I/Q MCP. Returns definitions or error. */
   private def execGetDefinitions(
       args: ResponseParser.ToolArgs,
       view: View
@@ -1278,44 +1270,26 @@ object AssistantTools {
       val nameList = names.split("\\s+").toList.filter(_.nonEmpty)
       if (nameList.isEmpty) "Error: no valid names provided"
       else {
-        val latch = new CountDownLatch(1)
-        @volatile var result =
-          s"No definitions found for: ${nameList.mkString(", ")}"
-
-        IQIntegration.getDefinitionsAsync(
-          view,
-          nameList,
-          AssistantConstants.CONTEXT_FETCH_TIMEOUT,
-          {
-            case Right(defs)
-                if defs.success &&
-                  defs.hasDefinitions &&
-                  defs.definitions.trim.nonEmpty =>
-              result = defs.definitions.trim
-              latch.countDown()
-            case Right(defs) if defs.timedOut =>
-              result = "Definition lookup timed out."
-              latch.countDown()
-            case Right(defs) =>
-              val msg = defs.error.getOrElse(defs.message).trim
-              if (msg.nonEmpty) {
-                result = s"Error: $msg"
-              }
-              latch.countDown()
-            case Left(err) =>
-              result = s"Error: $err"
-              latch.countDown()
-          }
-        )
-
-        if (
-          !latch.await(
-            AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC +
-              AssistantConstants.CONTEXT_FETCH_TIMEOUT / 1000 + 2,
-            TimeUnit.SECONDS
+        IQMcpClient
+          .callGetDefinitions(
+            names = nameList,
+            selectionArgs = selectionArgsForCurrentView(view),
+            timeoutMs = AssistantConstants.CONTEXT_FETCH_TIMEOUT
           )
-        ) "Error: definition lookup timed out"
-        else result
+          .fold(
+            mcpErr => s"Error: $mcpErr",
+            defs => {
+              if (defs.success && defs.hasDefinitions && defs.definitions.trim.nonEmpty)
+                defs.definitions.trim
+              else if (defs.timedOut)
+                "Definition lookup timed out."
+              else {
+                val msg = defs.error.getOrElse(defs.message).trim
+                if (msg.nonEmpty) s"Error: $msg"
+                else s"No definitions found for: ${nameList.mkString(", ")}"
+              }
+            }
+          )
       }
     }
   }
@@ -1333,7 +1307,7 @@ object AssistantTools {
       val mcpStart = System.currentTimeMillis()
       IQMcpClient
         .callExplore(
-          query = "proof",
+          query = IQMcpClient.ExploreQueryType.Proof,
           arguments = proof,
           timeoutMs = timeout
         )
@@ -1381,7 +1355,7 @@ object AssistantTools {
       val queryArg = s"simp_trace $effectiveMethod $timeout $depth"
       IQMcpClient
         .callExplore(
-          query = "proof",
+          query = IQMcpClient.ExploreQueryType.Proof,
           arguments = queryArg,
           timeoutMs = queryTimeoutMs
         )
@@ -1453,35 +1427,54 @@ object AssistantTools {
                 .flatMap(ta => Option(ta.getSelectedText))
                 .exists(_.trim.nonEmpty)
             
-            // Check for actual errors/warnings at selection
-            val onError = IQMcpClient
-              .callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Error,
-                scope = IQMcpClient.DiagnosticScope.Selection,
-                timeoutMs = readToolsTimeoutMs,
-                selectionArgs = selectionArgs
-              )
-              .toOption
-              .exists(_.diagnostics.nonEmpty)
+            // Run the 3 additional context checks in parallel for 3x speedup
+            val latch = new CountDownLatch(3)
+            @volatile var onError = false
+            @volatile var onWarning = false
+            @volatile var hasTypeInfo = false
             
-            val onWarning = IQMcpClient
-              .callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Warning,
-                scope = IQMcpClient.DiagnosticScope.Selection,
-                timeoutMs = readToolsTimeoutMs,
-                selectionArgs = selectionArgs
-              )
-              .toOption
-              .exists(_.diagnostics.nonEmpty)
+            // Fork error diagnostics check
+            val _ = Isabelle_Thread.fork(name = "context-info-errors") {
+              onError = IQMcpClient
+                .callGetDiagnostics(
+                  severity = IQMcpClient.DiagnosticSeverity.Error,
+                  scope = IQMcpClient.DiagnosticScope.Selection,
+                  timeoutMs = readToolsTimeoutMs,
+                  selectionArgs = selectionArgs
+                )
+                .toOption
+                .exists(_.diagnostics.nonEmpty)
+              latch.countDown()
+            }
             
-            // Check for type info at selection
-            val hasTypeInfo = IQMcpClient
-              .callGetTypeAtSelection(
-                selectionArgs = selectionArgs,
-                timeoutMs = readToolsTimeoutMs
-              )
-              .toOption
-              .exists(_.hasType)
+            // Fork warning diagnostics check
+            val _ = Isabelle_Thread.fork(name = "context-info-warnings") {
+              onWarning = IQMcpClient
+                .callGetDiagnostics(
+                  severity = IQMcpClient.DiagnosticSeverity.Warning,
+                  scope = IQMcpClient.DiagnosticScope.Selection,
+                  timeoutMs = readToolsTimeoutMs,
+                  selectionArgs = selectionArgs
+                )
+                .toOption
+                .exists(_.diagnostics.nonEmpty)
+              latch.countDown()
+            }
+            
+            // Fork type info check
+            val _ = Isabelle_Thread.fork(name = "context-info-type") {
+              hasTypeInfo = IQMcpClient
+                .callGetTypeAtSelection(
+                  selectionArgs = selectionArgs,
+                  timeoutMs = readToolsTimeoutMs
+                )
+                .toOption
+                .exists(_.hasType)
+              latch.countDown()
+            }
+            
+            // Wait for all 3 checks to complete (with timeout buffer)
+            val _ = latch.await(readToolsTimeoutMs * 3 + 1000, TimeUnit.MILLISECONDS)
             
             // Check if command is an apply-style proof
             val hasApplyProof = commandKeyword.startsWith("apply") || commandKeyword == "by"
@@ -1523,30 +1516,52 @@ object AssistantTools {
         .fold(
           err => s"Error: $err",
           listed => {
-            val allMatches = scala.collection.mutable.ListBuffer[String]()
-            listed.files.iterator.takeWhile(_ => allMatches.length < maxTotal).foreach { file =>
-              val remaining = maxTotal - allMatches.length
-              val matches = IQMcpClient
-                .callReadFileSearch(
-                  path = file.path,
-                  pattern = pattern,
-                  contextLines = 0,
-                  timeoutMs = readToolsTimeoutMs
-                )
-                .getOrElse(Nil)
-                .take(remaining)
-              matches.foreach { m =>
-                allMatches += s"${baseName(file.path)}:${m.lineNumber}: ${
-                    firstHighlightedOrFirstLine(m.context)
-                  }"
+            // Search theories in parallel (up to 8 concurrent threads)
+            val allMatches = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+            val maxConcurrent = 8
+            val theories = listed.files.toList
+            val chunks = theories.grouped(math.max(1, theories.length / maxConcurrent + 1)).toList
+            val latch = new CountDownLatch(chunks.length)
+            
+            for (chunk <- chunks) {
+              val _ = Isabelle_Thread.fork(name = "search-theories-parallel") {
+                try {
+                  for (file <- chunk if allMatches.size < maxTotal && !AssistantDockable.isCancelled) {
+                    val remaining = maxTotal - allMatches.size
+                    if (remaining > 0) {
+                      val matches = IQMcpClient
+                        .callReadFileSearch(
+                          path = file.path,
+                          pattern = pattern,
+                          contextLines = 0,
+                          timeoutMs = readToolsTimeoutMs
+                        )
+                        .getOrElse(Nil)
+                        .take(remaining)
+                      matches.foreach { m =>
+                        if (allMatches.size < maxTotal) {
+                          val _ = allMatches.add(s"${baseName(file.path)}:${m.lineNumber}: ${
+                              firstHighlightedOrFirstLine(m.context)
+                            }")
+                        }
+                      }
+                    }
+                  }
+                } finally {
+                  latch.countDown()
+                }
               }
             }
-
-            if (allMatches.nonEmpty) {
+            
+            // Wait for all search threads to complete
+            val _ = latch.await(readToolsTimeoutMs * chunks.length + 2000, TimeUnit.MILLISECONDS)
+            
+            val matchList = allMatches.asScala.toList.take(maxTotal)
+            if (matchList.nonEmpty) {
               val truncated =
-                if (allMatches.length >= maxTotal) s" (showing first $maxTotal)"
+                if (matchList.length >= maxTotal) s" (showing first $maxTotal)"
                 else ""
-              s"Found ${allMatches.length} matches$truncated:\n${allMatches.mkString("\n")}"
+              s"Found ${matchList.length} matches$truncated:\n${matchList.mkString("\n")}"
             } else s"No matches for '$pattern' in any open theory."
           }
         )
@@ -1621,8 +1636,11 @@ object AssistantTools {
             view.getTextArea.setCaretPosition(offset)
             result = s"Cursor moved to line $line"
           }
-        } catch { case ex: Exception => result = s"Error: ${ex.getMessage}" }
-        latch.countDown()
+        } catch { 
+          case ex: Exception => result = s"Error: ${ex.getMessage}" 
+        } finally {
+          latch.countDown()
+        }
       }
       if (!latch.await(AssistantConstants.GUI_DISPATCH_TIMEOUT_SEC, TimeUnit.SECONDS)) {
         "Error: Operation timed out (GUI thread busy)"
@@ -1790,7 +1808,8 @@ object AssistantTools {
         }
 
         // Wait for all methods to complete (or timeout)
-        val totalTimeout = timeout * methods.length + 2000
+        // Methods run in parallel, so timeout is bounded by the slowest single verification
+        val totalTimeout = timeout + 5000L
         if (!latch.await(totalTimeout, TimeUnit.MILLISECONDS)) {
           // Some methods didn't complete — mark them as timeout
           methods.foreach { method =>
@@ -1950,15 +1969,23 @@ object AssistantTools {
     
     val latch = new CountDownLatch(1)
     @volatile var selectedOption = ""
+    @volatile var widgetShown = false
     
     GUI_Thread.later {
-      val html = buildAskUserHtml(question, context, options, { choice =>
-        selectedOption = choice
-        latch.countDown()
-      })
-      ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html, 
-        java.time.LocalDateTime.now(), rawHtml = true, transient = true))
-      AssistantDockable.showConversation(ChatAction.getHistory)
+      try {
+        val html = buildAskUserHtml(question, context, options, { choice =>
+          selectedOption = choice
+          latch.countDown()
+        })
+        ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html, 
+          java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+        AssistantDockable.showConversation(ChatAction.getHistory)
+        widgetShown = true
+      } catch {
+        case ex: Exception =>
+          ErrorHandler.logSilentError("promptUserWithChoices", ex)
+          latch.countDown()
+      }
     }
     
     AssistantDockable.setStatus("Waiting for your input...")

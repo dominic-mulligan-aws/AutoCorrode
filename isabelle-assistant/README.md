@@ -8,6 +8,69 @@ Isabelle Assistant is part of the [AutoCorrode](https://github.com/awslabs/AutoC
 
 Isabelle Assistant combines four main layers:
 
+```mermaid
+graph TB
+    subgraph "Layer 1: UI & jEdit Integration"
+        Plugin[AssistantPlugin]
+        Dockable[AssistantDockable]
+        ContextMenu[AssistantContextMenu]
+        ChatAction[ChatAction]
+        
+        Plugin --> Dockable
+        Plugin --> ContextMenu
+        Dockable --> ChatAction
+    end
+    
+    subgraph "Layer 2: LLM Orchestration"
+        Bedrock[BedrockClient]
+        PayloadBuilder[PayloadBuilder]
+        ResponseParser[ResponseParser]
+        Tools[AssistantTools]
+        ToolPerms[ToolPermissions]
+        Prompts[PromptLoader]
+        
+        ChatAction --> Bedrock
+        Bedrock --> PayloadBuilder
+        Bedrock --> ResponseParser
+        Bedrock --> Tools
+        Tools --> ToolPerms
+        Bedrock --> Prompts
+    end
+    
+    subgraph "Layer 3: Isabelle Context & Proof"
+        GoalExt[GoalExtractor]
+        ContextFetch[ContextFetcher]
+        SuggestAct[SuggestAction]
+        RefactorAct[RefactorAction]
+        IQInteg[IQIntegration]
+        
+        Tools --> GoalExt
+        Tools --> ContextFetch
+        ChatAction --> SuggestAct
+        ChatAction --> RefactorAct
+        SuggestAct --> IQInteg
+        RefactorAct --> IQInteg
+    end
+    
+    subgraph "Layer 4: I/Q Backplane"
+        McpClient[IQMcpClient]
+        IQServer[I/Q MCP Server]
+        
+        Tools --> McpClient
+        IQInteg --> McpClient
+        GoalExt --> McpClient
+        McpClient -->|TCP JSON-RPC| IQServer
+        IQServer -->|PIDE/Isabelle Runtime| IsabelleCore[Isabelle Core]
+    end
+    
+    style Plugin fill:#e1f5ff
+    style Bedrock fill:#ffe1f5
+    style McpClient fill:#f5ffe1
+    style IQServer fill:#fff5e1
+```
+
+**Layer descriptions:**
+
 1. jEdit UI integration (`AssistantPlugin`, `AssistantDockable`, context menus, chat actions)
 2. LLM orchestration (`BedrockClient`, prompts, tool-use loop, retry/caching)
 3. Isabelle context/proof pipelines (`ContextFetcher`, `GoalExtractor`, `SuggestAction`)

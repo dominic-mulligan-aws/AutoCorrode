@@ -320,7 +320,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
               val startTime = System.currentTimeMillis()
               val result = IQMcpClient
                 .callExplore(
-                  query = "proof",
+                  query = IQMcpClient.ExploreQueryType.Proof,
                   arguments = proofText,
                   timeoutMs = timeoutMs,
                   extraParams = selectionParams
@@ -373,7 +373,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
           val startTime = System.currentTimeMillis()
           val result = IQMcpClient
             .callExplore(
-              query = "proof",
+              query = IQMcpClient.ExploreQueryType.Proof,
               arguments = proofText,
               timeoutMs = timeoutMs,
               extraParams = selectionParams
@@ -465,7 +465,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
         body = () => {
           val result = IQMcpClient
             .callExplore(
-              query = "find_theorems",
+              query = IQMcpClient.ExploreQueryType.FindTheorems,
               arguments = pattern,
               timeoutMs = timeoutMs,
               extraParams = selectionParams + ("max_results" -> limit)
@@ -515,7 +515,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
           body = () => {
             val result = IQMcpClient
               .callExplore(
-                query = "proof",
+                query = IQMcpClient.ExploreQueryType.Proof,
                 arguments = queryText,
                 timeoutMs = timeoutMs,
                 extraParams = selectionParams
@@ -575,7 +575,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
         body = () => {
           val result = IQMcpClient
             .callExplore(
-              query = "sledgehammer",
+              query = IQMcpClient.ExploreQueryType.Sledgehammer,
               arguments = "",
               timeoutMs = timeoutMs,
               extraParams = selectionParams

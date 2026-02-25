@@ -448,7 +448,12 @@ object ChatAction {
     AssistantDockable.showConversation(getHistory)
   }
 
-  /** Refresh available Bedrock models and display in chat. Runs async on background thread. */
+  /** Refresh available Bedrock models and display in chat.
+    * 
+    * Queries AWS Bedrock for available Anthropic models in the configured region.
+    * Updates the model cache and displays the list in chat. Runs asynchronously on
+    * background thread to avoid blocking the UI.
+    */
   private def runModels(): Unit = {
     AssistantDockable.setStatus("Refreshing models...")
 
@@ -473,7 +478,17 @@ object ChatAction {
     }
   }
 
-  /** View or modify Assistant configuration settings. Handles :set [key [value]] syntax. */
+  /** View or modify Assistant configuration settings.
+    * 
+    * Handles three forms:
+    * - `:set` - List all settings with their current values
+    * - `:set key` - Show value of specific setting
+    * - `:set key value` - Update setting to new value
+    * 
+    * Settings changes take effect immediately and persist across sessions.
+    * 
+    * @param arg Arguments after `:set` command (empty, key only, or key + value)
+    */
   private def runSet(arg: String): Unit = {
     val parts = arg.trim.split("\\s+", 2)
 
@@ -501,7 +516,14 @@ object ChatAction {
     }
   }
 
-  /** Explain Isabelle code at specified target location. Fetches context and invokes LLM. */
+  /** Explain Isabelle code at specified target location.
+    * 
+    * Resolves the target (cursor, selection, or explicit location), fetches surrounding context,
+    * and invokes the LLM with the explain_with_context prompt template. Displays result in chat.
+    * 
+    * @param view The current jEdit view
+    * @param targetSpec Target specification (empty for cursor, or TargetParser syntax)
+    */
   private def runExplain(view: View, targetSpec: String): Unit = {
     val targetOpt =
       if (targetSpec.trim.isEmpty) Some(TargetParser.CurrentCursor)
@@ -547,7 +569,14 @@ object ChatAction {
     }
   }
 
-  /** Generate proof step suggestions for target location. Delegates to SuggestAction. */
+  /** Generate proof step suggestions for target location.
+    * 
+    * Delegates to SuggestAction which combines LLM suggestions with optional Sledgehammer results,
+    * verifies candidates in parallel when I/Q is available, and displays ranked results with badges.
+    * 
+    * @param view The current jEdit view
+    * @param targetSpec Target specification (empty for cursor, or TargetParser syntax)
+    */
   private def runSuggest(view: View, targetSpec: String): Unit = {
     val targetOpt =
       if (targetSpec.trim.isEmpty) Some(TargetParser.CurrentCursor)
@@ -588,7 +617,13 @@ object ChatAction {
     }
   }
 
-  /** Explain error message at cursor position via LLM with context. */
+  /** Explain error message at cursor position.
+    * 
+    * Extracts the error message from PIDE at the current cursor position, gathers surrounding
+    * command text and goal state as context, then invokes the LLM with the explain_error prompt.
+    * 
+    * @param view The current jEdit view
+    */
   private def runExplainError(view: View): Unit = {
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
@@ -615,7 +650,15 @@ object ChatAction {
     }
   }
 
-  /** Verify proof method via I/Q and optionally diagnose failures with LLM. */
+  /** Verify proof method via I/Q and optionally diagnose failures with LLM.
+    * 
+    * Runs I/Q proof verification on the provided proof text. On success, displays timing.
+    * On failure, automatically diagnoses the error using the LLM with the diagnose_verification
+    * prompt template.
+    * 
+    * @param view The current jEdit view
+    * @param proof The proof text to verify (e.g., "by simp", "by (induction xs) auto")
+    */
   private def runVerify(view: View, proof: String): Unit = {
     if (proof.trim.isEmpty)
       addResponse("Usage: `:verify <proof>`\n\nExample: `:verify by simp`")
@@ -691,7 +734,13 @@ object ChatAction {
     }
   }
 
-  /** Run sledgehammer at cursor position and display results in chat. */
+  /** Run sledgehammer at cursor position and display results in chat.
+    * 
+    * Invokes Sledgehammer (external ATP provers) via I/Q at the current cursor position.
+    * Displays found proof methods with timing information. Timeout configured via settings.
+    * 
+    * @param view The current jEdit view
+    */
   private def runSledgehammer(view: View): Unit = {
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
@@ -734,7 +783,14 @@ object ChatAction {
     }
   }
 
-  /** Search for theorems matching pattern via find_theorems. Displays results in chat. */
+  /** Search for theorems matching pattern via find_theorems.
+    * 
+    * Runs I/Q find_theorems with the provided search pattern at the current cursor position.
+    * Returns matching theorems from the Isabelle library. Limit and timeout configured via settings.
+    * 
+    * @param view The current jEdit view
+    * @param pattern Search pattern (will be quoted if not already)
+    */
   private def runFind(view: View, pattern: String): Unit = {
     if (pattern.trim.isEmpty)
       addResponse(

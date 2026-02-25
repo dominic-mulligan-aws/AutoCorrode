@@ -33,8 +33,7 @@ object BedrockClient {
 
   /** Simple rate limiter: tracks the last API call timestamp and enforces a minimum
    *  interval between calls to avoid overwhelming the Bedrock API. */
-  private val rateLimitLock = new Object()
-  @volatile private var lastApiCallMs = 0L
+  private val lastApiCallMs = new java.util.concurrent.atomic.AtomicLong(0L)
   private val minIntervalMs = 200L // minimum 200ms between API calls
 
   enum ModelValidationError {
@@ -75,59 +74,56 @@ object BedrockClient {
 
   /** Circuit breaker: after consecutive failures, fail fast without calling the API.
    *  Resets after a cooldown period or on a successful call. */
-  private val circuitBreakerLock = new Object()
-  @volatile private var consecutiveFailures = 0
-  @volatile private var circuitOpenUntilMs = 0L
+  private val consecutiveFailures = new java.util.concurrent.atomic.AtomicInteger(0)
+  private val circuitOpenUntilMs = new java.util.concurrent.atomic.AtomicLong(0L)
   private val circuitBreakerThreshold = 5      // open after 5 consecutive failures
   private val circuitBreakerCooldownMs = 30000L // 30 seconds cooldown
 
   private def checkCircuitBreaker(): Unit = {
-    if (consecutiveFailures >= circuitBreakerThreshold) {
+    val failures = consecutiveFailures.get()
+    if (failures >= circuitBreakerThreshold) {
       val now = System.currentTimeMillis()
-      if (now < circuitOpenUntilMs) {
-        val remaining = (circuitOpenUntilMs - now) / 1000
+      val openUntil = circuitOpenUntilMs.get()
+      if (now < openUntil) {
+        val remaining = (openUntil - now) / 1000
         throw new RuntimeException(
-          s"Service temporarily unavailable (${remaining}s cooldown after $consecutiveFailures consecutive failures). " +
+          s"Service temporarily unavailable (${remaining}s cooldown after $failures consecutive failures). " +
           "Check your network connection and AWS credentials.")
       } else {
         // Cooldown elapsed — allow a probe request and reduce failure count to threshold-1
         // so that another failure will re-open the circuit, but a success will reset fully
-        circuitBreakerLock.synchronized {
-          if (now >= circuitOpenUntilMs && consecutiveFailures >= circuitBreakerThreshold) {
-            Output.writeln("[Assistant] Circuit breaker: cooldown elapsed, allowing probe request")
-            consecutiveFailures = circuitBreakerThreshold - 1
-            circuitOpenUntilMs = 0L
-          }
+        if (circuitOpenUntilMs.compareAndSet(openUntil, 0L) && 
+            consecutiveFailures.compareAndSet(failures, circuitBreakerThreshold - 1)) {
+          Output.writeln("[Assistant] Circuit breaker: cooldown elapsed, allowing probe request")
         }
       }
     }
   }
 
-  private def recordSuccess(): Unit = circuitBreakerLock.synchronized {
-    if (consecutiveFailures > 0) {
-      Output.writeln(s"[Assistant] Circuit breaker: reset after success (was $consecutiveFailures failures)")
-      consecutiveFailures = 0
-      circuitOpenUntilMs = 0L
+  private def recordSuccess(): Unit = {
+    val currentFailures = consecutiveFailures.getAndSet(0)
+    if (currentFailures > 0) {
+      Output.writeln(s"[Assistant] Circuit breaker: reset after success (was $currentFailures failures)")
+      circuitOpenUntilMs.set(0L)
     }
   }
 
-  private def recordFailure(): Unit = circuitBreakerLock.synchronized {
-    consecutiveFailures += 1
-    if (consecutiveFailures >= circuitBreakerThreshold) {
-      circuitOpenUntilMs = System.currentTimeMillis() + circuitBreakerCooldownMs
-      Output.writeln(s"[Assistant] Circuit breaker OPEN: $consecutiveFailures consecutive failures, cooldown ${circuitBreakerCooldownMs / 1000}s")
+  private def recordFailure(): Unit = {
+    val failures = consecutiveFailures.incrementAndGet()
+    if (failures >= circuitBreakerThreshold) {
+      circuitOpenUntilMs.set(System.currentTimeMillis() + circuitBreakerCooldownMs)
+      Output.writeln(s"[Assistant] Circuit breaker OPEN: $failures consecutive failures, cooldown ${circuitBreakerCooldownMs / 1000}s")
     }
   }
 
   private def enforceRateLimit(): Unit = {
-    rateLimitLock.synchronized {
-      val now = System.currentTimeMillis()
-      val elapsed = now - lastApiCallMs
-      if (elapsed < minIntervalMs) {
-        Thread.sleep(minIntervalMs - elapsed)
-      }
-      lastApiCallMs = System.currentTimeMillis()
+    val now = System.currentTimeMillis()
+    val lastCall = lastApiCallMs.get()
+    val elapsed = now - lastCall
+    if (elapsed < minIntervalMs) {
+      Thread.sleep(minIntervalMs - elapsed)
     }
+    lastApiCallMs.set(System.currentTimeMillis())
   }
 
   /**
