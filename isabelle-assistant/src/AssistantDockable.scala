@@ -12,7 +12,8 @@ import javax.swing.{
   JOptionPane,
   JPanel,
   JScrollPane,
-  JTextArea
+  JTextArea,
+  JWindow
 }
 import javax.swing.event.{HyperlinkEvent, HyperlinkListener}
 
@@ -180,6 +181,11 @@ class AssistantDockable(view: View, position: String)
   private val (statusLabel, cancelButton, clearButton) = createControlElements()
   private val topPanel = createTopPanel()
   private val (chatInput, sendButton, inputPanel) = createInputPanel()
+
+  // Completion popup state
+  private var completionWindow: Option[JWindow] = None
+  private var completionList: Option[javax.swing.JList[String]] = None
+  private var filteredCompletions: Array[String] = Array.empty
 
   // Initialize UI
   initializeUI()
@@ -465,70 +471,60 @@ class AssistantDockable(view: View, position: String)
   }
 
   private def setupChatInputHandlers(): Unit = {
-    // Command auto-completion popup
-    val completionPopup = new javax.swing.JPopupMenu()
+    // Non-focus-stealing auto-completion using JWindow
+    initializeCompletionPopup()
+    
+    // Document listener to update completion popup as user types
     chatInput.getDocument.addDocumentListener(
       new javax.swing.event.DocumentListener {
         def insertUpdate(e: javax.swing.event.DocumentEvent): Unit =
-          updateCompletion()
+          updateCompletionPopup()
         def removeUpdate(e: javax.swing.event.DocumentEvent): Unit =
-          updateCompletion()
+          updateCompletionPopup()
         def changedUpdate(e: javax.swing.event.DocumentEvent): Unit = {}
-        private def updateCompletion(): Unit =
-          javax.swing.SwingUtilities.invokeLater { () =>
-            val text = chatInput.getText.trim
-            completionPopup.setVisible(false)
-            if (
-              text.startsWith(":") && text.length >= 2 && !text.contains(" ")
-            ) {
-              val prefix = text.drop(1).toLowerCase
-              val commands = ChatAction.commandNames
-                .filter(_.startsWith(prefix))
-                .sorted
-                .take(8)
-              if (commands.nonEmpty) {
-                completionPopup.removeAll()
-                for (cmd <- commands) {
-                  val item = new javax.swing.JMenuItem(":" + cmd)
-                  item.addActionListener { _ =>
-                    chatInput.setText(":" + cmd + " ")
-                    chatInput.setCaretPosition(chatInput.getText.length)
-                    completionPopup.setVisible(false)
-                  }
-                  completionPopup.add(item)
-                }
-                try {
-                  val caret =
-                    chatInput.modelToView2D(chatInput.getCaretPosition)
-                  if (caret != null)
-                    completionPopup.show(
-                      chatInput,
-                      caret.getBounds.x,
-                      caret.getBounds.y + caret.getBounds.height
-                    )
-                } catch {
-                  case ex: Exception =>
-                    ErrorHandler.logSilentError("AssistantDockable", ex)
-                }
-              }
-            }
-          }
       }
     )
+    
+    // Focus listener to hide popup when input loses focus
+    chatInput.addFocusListener(new java.awt.event.FocusAdapter {
+      override def focusLost(e: java.awt.event.FocusEvent): Unit =
+        hideCompletionPopup()
+    })
 
     val inputMap = chatInput.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
     val actionMap = chatInput.getActionMap()
 
     // Use key bindings (instead of KeyListener) for reliable cross-platform handling.
-    inputMap.put(javax.swing.KeyStroke.getKeyStroke("ENTER"), "send")
+    inputMap.put(javax.swing.KeyStroke.getKeyStroke("ENTER"), "send-or-complete")
     // Explicitly map Shift+Enter to insert-break for cross-platform consistency
     inputMap.put(javax.swing.KeyStroke.getKeyStroke("shift ENTER"), "insert-break")
 
     inputMap.put(javax.swing.KeyStroke.getKeyStroke("ctrl ENTER"), "send")
+    inputMap.put(javax.swing.KeyStroke.getKeyStroke("TAB"), "accept-completion")
+    
+    actionMap.put(
+      "send-or-complete",
+      new javax.swing.AbstractAction() {
+        def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
+          if (isCompletionPopupVisible) acceptSelectedCompletion()
+          else sendChat()
+        }
+      }
+    )
+    
     actionMap.put(
       "send",
       new javax.swing.AbstractAction() {
         def actionPerformed(e: java.awt.event.ActionEvent): Unit = sendChat()
+      }
+    )
+    
+    actionMap.put(
+      "accept-completion",
+      new javax.swing.AbstractAction() {
+        def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
+          if (isCompletionPopupVisible) acceptSelectedCompletion()
+        }
       }
     )
 
@@ -540,20 +536,24 @@ class AssistantDockable(view: View, position: String)
       "cancel-or-clear",
       new javax.swing.AbstractAction() {
         def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
-          val now = System.currentTimeMillis()
-          if (AssistantDockable._busy) {
-            AssistantDockable.cancel()
-          } else if (chatInput.getText.trim.nonEmpty) {
-            chatInput.setText("")
-            inputHistoryIndex = -1
-            savedDraft = ""
-            lastEscapeTime = now
-          } else if (now - lastEscapeTime < 400) {
-            clearChat()
-            lastEscapeTime = 0L
+          if (isCompletionPopupVisible) {
+            hideCompletionPopup()
           } else {
-            // Input already empty, single Esc — still clear conversation for backward compat
-            clearChat()
+            val now = System.currentTimeMillis()
+            if (AssistantDockable._busy) {
+              AssistantDockable.cancel()
+            } else if (chatInput.getText.trim.nonEmpty) {
+              chatInput.setText("")
+              inputHistoryIndex = -1
+              savedDraft = ""
+              lastEscapeTime = now
+            } else if (now - lastEscapeTime < 400) {
+              clearChat()
+              lastEscapeTime = 0L
+            } else {
+              // Input already empty, single Esc — still clear conversation for backward compat
+              clearChat()
+            }
           }
         }
       }
@@ -563,21 +563,134 @@ class AssistantDockable(view: View, position: String)
     val originalUp = actionMap.get("caret-up")
     val originalDown = actionMap.get("caret-down")
 
-    inputMap.put(javax.swing.KeyStroke.getKeyStroke("UP"), "history-or-up")
-    actionMap.put("history-or-up", new javax.swing.AbstractAction() {
+    inputMap.put(javax.swing.KeyStroke.getKeyStroke("UP"), "completion-or-history-up")
+    actionMap.put("completion-or-history-up", new javax.swing.AbstractAction() {
       def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
-        if (isCaretOnFirstLine) navigateHistoryBack()
+        if (isCompletionPopupVisible) navigateCompletionUp()
+        else if (isCaretOnFirstLine) navigateHistoryBack()
         else if (originalUp != null) originalUp.actionPerformed(e)
       }
     })
 
-    inputMap.put(javax.swing.KeyStroke.getKeyStroke("DOWN"), "history-or-down")
-    actionMap.put("history-or-down", new javax.swing.AbstractAction() {
+    inputMap.put(javax.swing.KeyStroke.getKeyStroke("DOWN"), "completion-or-history-down")
+    actionMap.put("completion-or-history-down", new javax.swing.AbstractAction() {
       def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
-        if (isCaretOnLastLine) navigateHistoryForward()
+        if (isCompletionPopupVisible) navigateCompletionDown()
+        else if (isCaretOnLastLine) navigateHistoryForward()
         else if (originalDown != null) originalDown.actionPerformed(e)
       }
     })
+  }
+
+  /** Initialize the non-focus-stealing completion popup window */
+  private def initializeCompletionPopup(): Unit = {
+    val window = new javax.swing.JWindow(javax.swing.SwingUtilities.getWindowAncestor(this))
+    window.setFocusableWindowState(false)  // Critical: prevents focus stealing
+    window.setAlwaysOnTop(true)
+    
+    val list = new javax.swing.JList[String]()
+    list.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION)
+    list.setVisibleRowCount(8)
+    list.setFont(chatInput.getFont)
+    
+    val scrollPane = new JScrollPane(list)
+    scrollPane.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1))
+    window.add(scrollPane)
+    
+    completionWindow = Some(window)
+    completionList = Some(list)
+  }
+
+  /** Update completion popup based on current input text */
+  private def updateCompletionPopup(): Unit = {
+    javax.swing.SwingUtilities.invokeLater { () =>
+      val text = chatInput.getText
+      
+      // Only show completions for command prefixes (starts with : and no space yet)
+      if (text.startsWith(":") && text.length >= 2 && !text.contains(" ")) {
+        val prefix = text.drop(1).toLowerCase
+        val commands = ChatAction.commandNames
+          .filter(_.startsWith(prefix))
+          .sorted
+          .take(8)
+        
+        if (commands.nonEmpty) {
+          filteredCompletions = commands.map(":" + _).toArray
+          showCompletionPopup(filteredCompletions)
+        } else {
+          hideCompletionPopup()
+        }
+      } else {
+        hideCompletionPopup()
+      }
+    }
+  }
+
+  /** Show the completion popup with the given completions */
+  private def showCompletionPopup(completions: Array[String]): Unit = {
+    for {
+      window <- completionWindow
+      list <- completionList
+    } {
+      list.setListData(completions)
+      list.setSelectedIndex(0)
+      
+      // Position popup below the input panel
+      val inputLocation = inputPanel.getLocationOnScreen
+      val inputHeight = inputPanel.getHeight
+      window.setLocation(inputLocation.x, inputLocation.y + inputHeight)
+      
+      // Size to fit content
+      window.pack()
+      val preferredWidth = Math.max(200, inputPanel.getWidth / 2)
+      window.setSize(preferredWidth, window.getHeight)
+      
+      if (!window.isVisible) window.setVisible(true)
+    }
+  }
+
+  /** Hide the completion popup */
+  private def hideCompletionPopup(): Unit = {
+    completionWindow.foreach(_.setVisible(false))
+  }
+
+  /** Check if completion popup is currently visible */
+  private def isCompletionPopupVisible: Boolean = {
+    completionWindow.exists(_.isVisible)
+  }
+
+  /** Navigate up in the completion list */
+  private def navigateCompletionUp(): Unit = {
+    completionList.foreach { list =>
+      val currentIndex = list.getSelectedIndex
+      if (currentIndex > 0) {
+        list.setSelectedIndex(currentIndex - 1)
+        list.ensureIndexIsVisible(currentIndex - 1)
+      }
+    }
+  }
+
+  /** Navigate down in the completion list */
+  private def navigateCompletionDown(): Unit = {
+    completionList.foreach { list =>
+      val currentIndex = list.getSelectedIndex
+      if (currentIndex < list.getModel.getSize - 1) {
+        list.setSelectedIndex(currentIndex + 1)
+        list.ensureIndexIsVisible(currentIndex + 1)
+      }
+    }
+  }
+
+  /** Accept the currently selected completion */
+  private def acceptSelectedCompletion(): Unit = {
+    completionList.foreach { list =>
+      val selected = list.getSelectedValue
+      if (selected != null) {
+        chatInput.setText(selected + " ")
+        chatInput.setCaretPosition(chatInput.getText.length)
+        hideCompletionPopup()
+      }
+    }
   }
 
   private def setupAccessibilityHandlers(): Unit = {
