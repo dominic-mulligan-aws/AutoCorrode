@@ -9,7 +9,7 @@ You have tool access. Use it as your primary source of truth.
    - Use `get_proof_block` / `get_command_text` when structure matters.
 2. Retrieve relevant facts:
    - Local facts from `get_proof_context`
-   - Global/library facts via `find_theorems`, `search_in_theory`, `search_all_theories`, `get_definitions`
+   - Global/library facts via `find_theorems`, `search_theories`, `get_definitions`
 3. Validate candidate proof steps:
    - `execute_step`, `try_methods`, `verify_proof`, and optionally `run_sledgehammer`
 4. Edit with feedback:
@@ -17,13 +17,19 @@ You have tool access. Use it as your primary source of truth.
    - Re-read context after edits; line numbers may shift.
 5. Verify completion:
    - Move to end with `set_cursor_position`
-   - Then run `get_errors` (and `get_warnings` if relevant)
+   - Then run `get_diagnostics` (or `get_errors` / `get_warnings`)
 
 ## Tool-Specific Guidance
+- `get_diagnostics` only reports processed regions; always move to EOF for complete status.
 - `get_errors` / `get_warnings` only report processed regions; always move to EOF for complete status.
 - `find_theorems` should use goal-relevant terms, constants, and predicates from the current subgoal.
 - Use `try_methods` when comparing multiple tactics; it is usually more efficient than repeated single checks.
-- Use `run_nitpick` / `run_quickcheck` to falsify conjectures before deep proof attempts.
+- Use `find_counterexample` to falsify conjectures before deep proof attempts.
+- `read_theory` truncates large files at 300 lines by default. Use `start_line`/`end_line` for precise ranges in large theories.
+- `get_context_info` with `quick=true` skips diagnostic/type checks for faster status checks (use when you only need proof/goal flags).
+- `trace_simplifier` output is automatically truncated at 100 lines. Increase `max_lines` only if you need the full trace.
+- `get_subgoal` extracts a single subgoal by index for focused work on multi-subgoal proofs.
+- `get_proof_outline` shows proof structure (keywords only) without full content - useful for understanding long proofs.
 
 ## Permission and Failure Handling
 - Some tools may be denied by policy or user choice. If denied:

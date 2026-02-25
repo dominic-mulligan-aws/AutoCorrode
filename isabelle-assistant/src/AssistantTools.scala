@@ -47,7 +47,7 @@ object AssistantTools {
   val tools: List[ToolDef] = List(
     ToolDef(
       "read_theory",
-      "Read lines from an open Isabelle theory file. Returns the file content. Use start_line/end_line to read a specific range.",
+      "Read lines from an open Isabelle theory file. Returns the file content. Use start_line/end_line to read a specific range. Large files are automatically truncated; use start_line/end_line for precise ranges.",
       List(
         ToolParam(
           "theory",
@@ -64,6 +64,11 @@ object AssistantTools {
           "end_line",
           "integer",
           "Last line to read (default: end of file)"
+        ),
+        ToolParam(
+          "max_lines",
+          "integer",
+          "Maximum lines to return (default: 300). Use start_line/end_line for precise ranges instead."
         )
       )
     ),
@@ -91,9 +96,44 @@ object AssistantTools {
       )
     ),
     ToolDef(
+      "search_theories",
+      "Search for a text pattern in theory files. Unified tool replacing search_in_theory and search_all_theories. Returns matching lines with theory names and line numbers.",
+      List(
+        ToolParam(
+          "pattern",
+          "string",
+          "Text pattern to search for (case-insensitive)",
+          required = true
+        ),
+        ToolParam(
+          "scope",
+          "string",
+          "Scope: 'current' (current buffer), 'all' (all open theories), or a theory name",
+          required = true
+        ),
+        ToolParam(
+          "max_results",
+          "integer",
+          "Maximum results to return (default: 20)"
+        )
+      )
+    ),
+    ToolDef(
       "get_goal_state",
       "Get the current proof goal state at the cursor position. Returns the goal or empty if not in a proof.",
       Nil
+    ),
+    ToolDef(
+      "get_subgoal",
+      "Extract a single subgoal by index from the current proof state. More efficient than get_goal_state for multi-subgoal proofs when you only need to focus on one subgoal.",
+      List(
+        ToolParam(
+          "index",
+          "integer",
+          "Subgoal index (1-based). Use 1 for the first subgoal.",
+          required = true
+        )
+      )
     ),
     ToolDef(
       "get_proof_context",
@@ -141,6 +181,17 @@ object AssistantTools {
       Nil
     ),
     ToolDef(
+      "find_counterexample",
+      "Search for counterexamples to the current goal using Nitpick or QuickCheck. Returns counterexample if found. Requires I/Q plugin.",
+      List(
+        ToolParam(
+          "method",
+          "string",
+          "Method: 'nitpick', 'quickcheck', or 'both' (default: 'quickcheck')"
+        )
+      )
+    ),
+    ToolDef(
       "get_type",
       "Get type information for the term at the cursor position. Returns the term and its type.",
       Nil
@@ -158,6 +209,28 @@ object AssistantTools {
           "scope",
           "string",
           "Scope: 'all' (default, all errors in current buffer), 'cursor' (only at cursor position), or a theory name"
+        )
+      )
+    ),
+    ToolDef(
+      "get_diagnostics",
+      "Get error or warning messages from PIDE's processed region. IMPORTANT: Only returns diagnostics from the already-processed portion of the theory. To check if a file is completely error/warning-free, first use set_cursor_position to move to the end of the file, then call get_diagnostics.",
+      List(
+        ToolParam(
+          "severity",
+          "string",
+          "Severity level: 'error', 'warning', or 'all'",
+          required = true
+        ),
+        ToolParam(
+          "scope",
+          "string",
+          "Scope: 'all' (default, all diagnostics in current buffer), 'cursor' (only at cursor position), or a theory name"
+        ),
+        ToolParam(
+          "count_only",
+          "boolean",
+          "Return only counts instead of full diagnostic messages (default: false)"
         )
       )
     ),
@@ -187,12 +260,17 @@ object AssistantTools {
     ),
     ToolDef(
       "trace_simplifier",
-      "Trace the simplifier to understand rewriting steps. Returns detailed trace of simp/auto operations. Requires I/Q plugin.",
+      "Trace the simplifier to understand rewriting steps. Returns detailed trace of simp/auto operations. Output is automatically truncated to prevent context overflow. Requires I/Q plugin.",
       List(
         ToolParam(
           "method",
           "string",
           "Method to trace: 'simp' or 'auto' (default: 'simp')"
+        ),
+        ToolParam(
+          "max_lines",
+          "integer",
+          "Maximum lines to return (default: 100). Traces can be very long."
         )
       )
     ),
@@ -202,9 +280,20 @@ object AssistantTools {
       Nil
     ),
     ToolDef(
+      "get_proof_outline",
+      "Get a structural outline of the proof block at the cursor position. Returns only the proof skeleton (keyword lines) with line numbers, filtering out proof details. Useful for understanding proof structure without full content.",
+      Nil
+    ),
+    ToolDef(
       "get_context_info",
       "Get structured context information at cursor: whether in a proof, whether there's a goal, whether on an error, etc. Returns a summary of the cursor context.",
-      Nil
+      List(
+        ToolParam(
+          "quick",
+          "boolean",
+          "Quick mode: skip diagnostic and type checks for faster response (default: false)"
+        )
+      )
     ),
     ToolDef(
       "search_all_theories",
@@ -219,7 +308,7 @@ object AssistantTools {
         ToolParam(
           "max_results",
           "integer",
-          "Maximum total results across all theories (default: 50)"
+          "Maximum total results across all theories (default: 20)"
         )
       )
     ),
@@ -298,7 +387,12 @@ object AssistantTools {
       "get_entities",
       "List all named entities (lemmas, definitions, datatypes, etc.) in a theory file with their line numbers. Returns a structured listing of the theory's contents.",
       List(
-        ToolParam("theory", "string", "Theory name", required = true)
+        ToolParam("theory", "string", "Theory name", required = true),
+        ToolParam(
+          "max_results",
+          "integer",
+          "Maximum entities to return (default: 50)"
+        )
       )
     ),
     ToolDef(
@@ -531,21 +625,26 @@ object AssistantTools {
       ToolId.ReadTheory -> ((a, v) => execReadTheory(a, v)),
       ToolId.ListTheories -> ((_, _) => execListTheories()),
       ToolId.SearchInTheory -> ((a, v) => execSearchInTheory(a, v)),
+      ToolId.SearchTheories -> ((a, v) => execSearchTheories(a, v)),
       ToolId.GetGoalState -> ((_, v) => execGetGoalState(v)),
+      ToolId.GetSubgoal -> ((a, v) => execGetSubgoal(a, v)),
       ToolId.GetProofContext -> ((_, v) => execGetProofContext(v)),
       ToolId.FindTheorems -> ((a, v) => execFindTheorems(a, v)),
       ToolId.VerifyProof -> ((a, v) => execVerifyProof(a, v)),
       ToolId.RunSledgehammer -> ((_, v) => execRunSledgehammer(v)),
       ToolId.RunNitpick -> ((_, v) => execRunNitpick(v)),
       ToolId.RunQuickcheck -> ((_, v) => execRunQuickcheck(v)),
+      ToolId.FindCounterexample -> ((a, v) => execFindCounterexample(a, v)),
       ToolId.GetType -> ((_, v) => execGetType(v)),
       ToolId.GetCommandText -> ((_, v) => execGetCommandText(v)),
       ToolId.GetErrors -> ((a, v) => execGetErrors(a, v)),
+      ToolId.GetDiagnostics -> ((a, v) => execGetDiagnosticsUnified(a, v)),
       ToolId.GetDefinitions -> ((a, v) => execGetDefinitions(a, v)),
       ToolId.ExecuteStep -> ((a, v) => execExecuteStep(a, v)),
       ToolId.TraceSimplifier -> ((a, v) => execTraceSimplifier(a, v)),
       ToolId.GetProofBlock -> ((_, v) => execGetProofBlock(v)),
-      ToolId.GetContextInfo -> ((_, v) => execGetContextInfo(v)),
+      ToolId.GetProofOutline -> ((_, v) => execGetProofOutline(v)),
+      ToolId.GetContextInfo -> ((a, v) => execGetContextInfo(a, v)),
       ToolId.SearchAllTheories -> ((a, v) => execSearchAllTheories(a, v)),
       ToolId.GetDependencies -> ((a, v) => execGetDependencies(a, v)),
       ToolId.GetWarnings -> ((a, v) => execGetWarnings(a, v)),
@@ -710,6 +809,18 @@ object AssistantTools {
         throw new IllegalArgumentException(
           s"Parameter '$key' must be an integer"
         )
+    }
+
+  private def boolArg(args: ResponseParser.ToolArgs, key: String, default: Boolean): Boolean =
+    args.get(key) match {
+      case Some(ResponseParser.BooleanValue(b)) => b
+      case Some(ResponseParser.StringValue(s)) => 
+        s.trim.toLowerCase match {
+          case "true" => true
+          case "false" => false
+          case _ => default
+        }
+      case _ => default
     }
 
   private def snapshotViewState(view: View): Option[ViewStateSnapshot] =
@@ -941,6 +1052,10 @@ object AssistantTools {
       case Right(theory) =>
         val start = optionalIntArg(args, "start_line")
         val end = optionalIntArg(args, "end_line")
+        val maxLines = optionalIntArg(args, "max_lines")
+          .map(n => math.max(1, math.min(n, 10000)))
+          .getOrElse(AssistantConstants.DEFAULT_READ_THEORY_MAX_LINES)
+        
         resolveTheoryPath(theory).fold(
           err => err,
           path =>
@@ -953,9 +1068,39 @@ object AssistantTools {
               )
               .fold(
                 mcpErr => s"Error: $mcpErr",
-                content =>
-                  if (content.trim.isEmpty) s"Theory $theory is empty."
-                  else s"Theory $theory:\n$content"
+                numberedContent => {
+                  if (numberedContent.trim.isEmpty) s"Theory $theory is empty."
+                  else {
+                    val totalLines = lineCountFromNumberedContent(numberedContent)
+                    val lines = numberedContent.linesIterator.toList
+                    
+                    // Apply truncation if needed and not using explicit range
+                    val (displayLines, wasTruncated) = if (start.isEmpty && end.isEmpty && lines.length > maxLines) {
+                      (lines.take(maxLines), true)
+                    } else {
+                      (lines, false)
+                    }
+                    
+                    val content = displayLines.mkString("\n")
+                    val header = s"Theory $theory ($totalLines lines)"
+                    val rangeInfo = if (start.isDefined || end.isDefined) {
+                      val actualStart = start.getOrElse(1)
+                      val actualEnd = end.getOrElse(totalLines)
+                      s", showing lines $actualStart-$actualEnd"
+                    } else if (wasTruncated) {
+                      s", showing lines 1-$maxLines"
+                    } else {
+                      ""
+                    }
+                    
+                    val truncationNote = if (wasTruncated) {
+                      val remaining = totalLines - maxLines
+                      s"\n\n... [truncated, $remaining more lines. Use start_line/end_line to read specific ranges]"
+                    } else ""
+                    
+                    s"$header$rangeInfo:\n$content$truncationNote"
+                  }
+                }
               )
         )
     }
@@ -1022,6 +1167,42 @@ object AssistantTools {
     }
   }
 
+  /** Unified search tool with flexible scope (current buffer, all theories, or specific theory). */
+  private def execSearchTheories(
+      args: ResponseParser.ToolArgs,
+      view: View
+  ): String = {
+    val pattern = safeStringArg(args, "pattern", MAX_PATTERN_ARG_LENGTH)
+    val scope = safeStringArg(args, "scope", 200)
+    if (pattern.isEmpty) "Error: pattern required"
+    else if (scope.isEmpty) "Error: scope required"
+    else {
+      scope.toLowerCase match {
+        case "current" =>
+          currentBufferPath(view).fold(
+            err => err,
+            path => {
+              val max = math.min(AssistantConstants.MAX_SEARCH_RESULTS, math.max(1, intArg(args, "max_results", 20)))
+              IQMcpClient.callReadFileSearch(path, pattern, 0, readToolsTimeoutMs).fold(
+                err => s"Error: $err",
+                matches => {
+                  val shown = matches.take(max)
+                  if (shown.isEmpty) s"No matches for '$pattern' in current buffer."
+                  else shown.map(m => s"${m.lineNumber}: ${firstHighlightedOrFirstLine(m.context)}").mkString("\n")
+                }
+              )
+            }
+          )
+        case "all" =>
+          val argsForAll = Map("pattern" -> ResponseParser.StringValue(pattern), "max_results" -> ResponseParser.IntValue(intArg(args, "max_results", 20)))
+          execSearchAllTheories(argsForAll, view)
+        case _ =>
+          val argsForSingle = Map("theory" -> ResponseParser.StringValue(scope), "pattern" -> ResponseParser.StringValue(pattern), "max_results" -> ResponseParser.IntValue(intArg(args, "max_results", 20)))
+          execSearchInTheory(argsForSingle, view)
+      }
+    }
+  }
+
   /** Get current proof goal state at cursor via I/Q MCP. Returns goal text or error. */
   private def execGetGoalState(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
@@ -1038,6 +1219,74 @@ object AssistantTools {
               ctx.goal.goalText.trim
             else "No goal at cursor position."
         )
+  }
+
+  /** Extract a single subgoal by index from proof state. Parses PIDE goal format. */
+  private def execGetSubgoal(args: ResponseParser.ToolArgs, view: View): String = {
+    val index = intArg(args, "index", -1)
+    if (index <= 0) "Error: index must be a positive integer"
+    else if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    else {
+      IQMcpClient
+        .callGetContextInfo(
+          selectionArgs = selectionArgsForCurrentView(view),
+          timeoutMs = readToolsTimeoutMs
+        )
+        .fold(
+          err => s"Error: $err",
+          ctx => {
+            if (!ctx.goal.hasGoal || ctx.goal.goalText.trim.isEmpty)
+              "No goal at cursor position."
+            else {
+              // Parse PIDE goal format: "goal (N subgoals):\n 1. ...\n 2. ..."
+              val goalText = ctx.goal.goalText
+              val lines = goalText.linesIterator.toList
+              
+              // Find the header line
+              val headerPattern = """^goal \((\d+) subgoals?\):$""".r
+              val subgoalCount = lines.headOption.flatMap {
+                case headerPattern(n) => scala.util.Try(n.toInt).toOption
+                case _ => None
+              }.getOrElse(ctx.goal.numSubgoals)
+              
+              if (subgoalCount == 0) {
+                "No subgoals (proof complete)."
+              } else if (index > subgoalCount) {
+                s"Error: subgoal $index out of range (only $subgoalCount subgoal${if (subgoalCount == 1) "" else "s"})"
+              } else {
+                // Find subgoal N - they're numbered as " 1. ", " 2. ", etc
+                val subgoalPattern = (s"""^\\s*$index\\.\\s+(.*)""").r
+                val subgoalLines = scala.collection.mutable.ListBuffer[String]()
+                var inTargetSubgoal = false
+                var foundStart = false
+                
+                for (line <- lines.drop(1)) { // Skip header
+                  line match {
+                    case subgoalPattern(rest) =>
+                      inTargetSubgoal = true
+                      foundStart = true
+                      subgoalLines += rest
+                    case l if inTargetSubgoal && l.trim.nonEmpty && l.matches("""^\s*\d+\.\s+.*""") =>
+                      // Hit next subgoal, stop
+                      inTargetSubgoal = false
+                    case l if inTargetSubgoal =>
+                      subgoalLines += l
+                    case _ => // skip
+                  }
+                }
+                
+                if (!foundStart) {
+                  s"Error: could not find subgoal $index in goal state"
+                } else if (subgoalLines.isEmpty) {
+                  s"Subgoal $index (empty)"
+                } else {
+                  s"Subgoal $index of $subgoalCount:\n${subgoalLines.mkString("\n")}"
+                }
+              }
+            }
+          }
+        )
+    }
   }
 
   /** Get local facts and assumptions in scope at cursor. Returns context text or error. */
@@ -1143,6 +1392,37 @@ object AssistantTools {
       timeoutMs = AssistantOptions.getQuickcheckTimeout,
       toolLabel = "quickcheck"
     )
+
+  /** Unified counterexample finder supporting nitpick, quickcheck, or both. */
+  private def execFindCounterexample(
+      args: ResponseParser.ToolArgs,
+      @unused view: View
+  ): String = {
+    val method = safeStringArg(args, "method", 50).toLowerCase
+    val effectiveMethod = if (method.isEmpty || method == "quickcheck") "quickcheck" else method
+    
+    if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    else {
+      effectiveMethod match {
+        case "quickcheck" => execRunQuickcheck(view)
+        case "nitpick" => execRunNitpick(view)
+        case "both" =>
+          // Try quickcheck first (fast), then nitpick if no counterexample
+          val quickResult = execRunQuickcheck(view)
+          if (quickResult.contains("Counterexample") || quickResult.contains("counterexample")) {
+            s"[quickcheck]\n$quickResult"
+          } else {
+            val nitResult = execRunNitpick(view)
+            if (nitResult.contains("Counterexample") || nitResult.contains("counterexample")) {
+              s"[nitpick]\n$nitResult"
+            } else {
+              s"[quickcheck] $quickResult\n[nitpick] $nitResult"
+            }
+          }
+        case _ => s"Error: method must be 'nitpick', 'quickcheck', or 'both', got '$method'"
+      }
+    }
+  }
 
   /** Get type information for term at cursor via I/Q MCP. Returns type text or error. */
   private def execGetType(view: View): String = {
@@ -1346,6 +1626,10 @@ object AssistantTools {
     val method = safeStringArg(args, "method", 50)
     val effectiveMethod =
       if (method.isEmpty || method == "simp") "simp" else method
+    val maxLines = optionalIntArg(args, "max_lines")
+      .map(n => math.max(1, math.min(n, 1000)))
+      .getOrElse(AssistantConstants.DEFAULT_TRACE_MAX_LINES)
+    
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else {
       val timeout = AssistantOptions.getTraceTimeout
@@ -1364,8 +1648,17 @@ object AssistantTools {
           explore => {
             if (explore.success) {
               val text = explore.results.trim
-              if (text.nonEmpty) text
-              else "Error: simplifier trace completed without a result."
+              if (text.isEmpty) "Error: simplifier trace completed without a result."
+              else {
+                val lines = text.linesIterator.toList
+                if (lines.length > maxLines) {
+                  val truncated = lines.take(maxLines).mkString("\n")
+                  val remaining = lines.length - maxLines
+                  s"$truncated\n\n... [trace truncated at $maxLines lines; $remaining more lines omitted. Increase max_lines for full trace]"
+                } else {
+                  text
+                }
+              }
             } else if (explore.timedOut) "Simplifier trace timed out."
             else
               s"Error: ${exploreFailureMessage(explore, "simplifier trace failed")}"
@@ -1395,10 +1688,57 @@ object AssistantTools {
         )
   }
 
+  /** Get proof outline (skeleton of structural keywords only). Filters proof block to show structure. */
+  private def execGetProofOutline(view: View): String = {
+    if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    else
+      IQMcpClient
+        .callGetProofBlocksForSelection(
+          selectionArgs = selectionArgsForCurrentView(view),
+          timeoutMs = readToolsTimeoutMs
+        )
+        .fold(
+          err => s"Error: $err",
+          blocks =>
+            blocks.proofBlocks.headOption match {
+              case Some(block) =>
+                val startLine = block.startLine
+                val proofText = block.proofText
+                // Keywords that define proof structure (not proof content)
+                val structuralKeywords = Set(
+                  "lemma", "theorem", "corollary", "proposition",
+                  "proof", "qed", "done",
+                  "case", "next",
+                  "show", "have", "obtain",
+                  "apply", "by", "using", "unfolding"
+                )
+                
+                val outline = proofText.linesIterator.zipWithIndex.flatMap { case (line, idx) =>
+                  val trimmed = line.trim
+                  val actualLine = startLine + idx
+                  // Extract first word (keyword)
+                  val firstWord = trimmed.takeWhile(c => c.isLetter || c == '_')
+                  if (structuralKeywords.contains(firstWord)) {
+                    // Include the line with its line number
+                    Some(s"L$actualLine: ${trimmed.take(80)}")
+                  } else {
+                    None
+                  }
+                }.mkString("\n")
+                
+                if (outline.trim.isEmpty) "Proof block has no structural keywords."
+                else s"Proof outline:\n$outline"
+              case None =>
+                blocks.message.getOrElse("No proof block at cursor position.")
+            }
+        )
+  }
+
   /** Get structured context info (in_proof, has_goal, on_error, etc.) via I/Q MCP. Returns key-value summary. */
-  private def execGetContextInfo(view: View): String = {
+  private def execGetContextInfo(args: ResponseParser.ToolArgs, view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
     else {
+      val quickMode = boolArg(args, "quick", default = false)
       val selectionArgs = selectionArgsForCurrentView(view)
       IQMcpClient
         .callGetContextInfo(
@@ -1427,57 +1767,64 @@ object AssistantTools {
                 .flatMap(ta => Option(ta.getSelectedText))
                 .exists(_.trim.nonEmpty)
             
-            // Run the 3 additional context checks in parallel for 3x speedup
-            val latch = new CountDownLatch(3)
-            @volatile var onError = false
-            @volatile var onWarning = false
-            @volatile var hasTypeInfo = false
-            
-            // Fork error diagnostics check
-            val _ = Isabelle_Thread.fork(name = "context-info-errors") {
-              onError = IQMcpClient
-                .callGetDiagnostics(
-                  severity = IQMcpClient.DiagnosticSeverity.Error,
-                  scope = IQMcpClient.DiagnosticScope.Selection,
-                  timeoutMs = readToolsTimeoutMs,
-                  selectionArgs = selectionArgs
-                )
-                .toOption
-                .exists(_.diagnostics.nonEmpty)
-              latch.countDown()
-            }
-            
-            // Fork warning diagnostics check
-            val _ = Isabelle_Thread.fork(name = "context-info-warnings") {
-              onWarning = IQMcpClient
-                .callGetDiagnostics(
-                  severity = IQMcpClient.DiagnosticSeverity.Warning,
-                  scope = IQMcpClient.DiagnosticScope.Selection,
-                  timeoutMs = readToolsTimeoutMs,
-                  selectionArgs = selectionArgs
-                )
-                .toOption
-                .exists(_.diagnostics.nonEmpty)
-              latch.countDown()
-            }
-            
-            // Fork type info check
-            val _ = Isabelle_Thread.fork(name = "context-info-type") {
-              hasTypeInfo = IQMcpClient
-                .callGetTypeAtSelection(
-                  selectionArgs = selectionArgs,
-                  timeoutMs = readToolsTimeoutMs
-                )
-                .toOption
-                .exists(_.hasType)
-              latch.countDown()
-            }
-            
-            // Wait for all 3 checks to complete (with timeout buffer)
-            val _ = latch.await(readToolsTimeoutMs * 3 + 1000, TimeUnit.MILLISECONDS)
-            
             // Check if command is an apply-style proof
             val hasApplyProof = commandKeyword.startsWith("apply") || commandKeyword == "by"
+            
+            // In quick mode, skip the 3 additional parallel checks
+            val (onError, onWarning, hasTypeInfo) = if (quickMode) {
+              (false, false, false)
+            } else {
+              // Run the 3 additional context checks in parallel for 3x speedup
+              val latch = new CountDownLatch(3)
+              @volatile var errorCheck = false
+              @volatile var warningCheck = false
+              @volatile var typeCheck = false
+              
+              // Fork error diagnostics check
+              val _ = Isabelle_Thread.fork(name = "context-info-errors") {
+                errorCheck = IQMcpClient
+                  .callGetDiagnostics(
+                    severity = IQMcpClient.DiagnosticSeverity.Error,
+                    scope = IQMcpClient.DiagnosticScope.Selection,
+                    timeoutMs = readToolsTimeoutMs,
+                    selectionArgs = selectionArgs
+                  )
+                  .toOption
+                  .exists(_.diagnostics.nonEmpty)
+                latch.countDown()
+              }
+              
+              // Fork warning diagnostics check
+              val _ = Isabelle_Thread.fork(name = "context-info-warnings") {
+                warningCheck = IQMcpClient
+                  .callGetDiagnostics(
+                    severity = IQMcpClient.DiagnosticSeverity.Warning,
+                    scope = IQMcpClient.DiagnosticScope.Selection,
+                    timeoutMs = readToolsTimeoutMs,
+                    selectionArgs = selectionArgs
+                  )
+                  .toOption
+                  .exists(_.diagnostics.nonEmpty)
+                latch.countDown()
+              }
+              
+              // Fork type info check
+              val _ = Isabelle_Thread.fork(name = "context-info-type") {
+                typeCheck = IQMcpClient
+                  .callGetTypeAtSelection(
+                    selectionArgs = selectionArgs,
+                    timeoutMs = readToolsTimeoutMs
+                  )
+                  .toOption
+                  .exists(_.hasType)
+                latch.countDown()
+              }
+              
+              // Wait for all 3 checks to complete (with timeout buffer)
+              val _ = latch.await(readToolsTimeoutMs * 3 + 1000, TimeUnit.MILLISECONDS)
+              
+              (errorCheck, warningCheck, typeCheck)
+            }
             
             val parts = List(
               s"in_proof: ${ctx.inProofContext}",
@@ -1505,7 +1852,7 @@ object AssistantTools {
     val pattern = safeStringArg(args, "pattern", MAX_PATTERN_ARG_LENGTH)
     if (pattern.isEmpty) "Error: pattern required"
     else {
-      val maxTotal = math.min(200, math.max(1, intArg(args, "max_results", 50)))
+      val maxTotal = math.min(200, math.max(1, intArg(args, "max_results", AssistantConstants.DEFAULT_SEARCH_ALL_THEORIES_MAX_RESULTS)))
       IQMcpClient
         .callListFiles(
           filterOpen = Some(true),
@@ -1540,9 +1887,9 @@ object AssistantTools {
                         .take(remaining)
                       matches.foreach { m =>
                         if (allMatches.size < maxTotal) {
-                          val _ = allMatches.add(s"${baseName(file.path)}:${m.lineNumber}: ${
-                              firstHighlightedOrFirstLine(m.context)
-                            }")
+                          val matchText = firstHighlightedOrFirstLine(m.context)
+                          val truncatedText = if (matchText.length > 80) matchText.take(77) + "..." else matchText
+                          val _ = allMatches.add(s"${baseName(file.path)}:${m.lineNumber}: $truncatedText")
                         }
                       }
                     }
@@ -1613,6 +1960,237 @@ object AssistantTools {
       view: View
   ): String =
     execGetDiagnostics(args, view, IQMcpClient.DiagnosticSeverity.Warning, "No warnings")
+
+  /** Unified diagnostics tool supporting errors, warnings, or all diagnostics with optional count-only mode. */
+  private def execGetDiagnosticsUnified(
+      args: ResponseParser.ToolArgs,
+      view: View
+  ): String = {
+    val severityStr = safeStringArg(args, "severity", 50).toLowerCase
+    val countOnly = boolArg(args, "count_only", default = false)
+    
+    val severity = severityStr match {
+      case "warning" => IQMcpClient.DiagnosticSeverity.Warning
+      case "error" => IQMcpClient.DiagnosticSeverity.Error
+      case "all" => 
+        // For "all", we need to query both and combine
+        return execGetDiagnosticsAll(args, view, countOnly)
+      case _ => 
+        return s"Error: severity must be 'error', 'warning', or 'all', got '$severityStr'"
+    }
+    
+    if (countOnly) {
+      execGetDiagnosticsCount(args, view, severity)
+    } else {
+      val emptyMsg = if (severity == IQMcpClient.DiagnosticSeverity.Error) "No errors" else "No warnings"
+      execGetDiagnostics(args, view, severity, emptyMsg)
+    }
+  }
+
+  /** Get diagnostics count only (for count_only mode). */
+  private def execGetDiagnosticsCount(
+      args: ResponseParser.ToolArgs,
+      view: View,
+      severity: IQMcpClient.DiagnosticSeverity
+  ): String = {
+    val timeoutMs = readToolsTimeoutMs
+    val rawScope = safeStringArg(args, "scope", 200)
+    val effectiveScope = if (rawScope.isEmpty) "all" else rawScope
+    val severityLabel = if (severity == IQMcpClient.DiagnosticSeverity.Error) "errors" else "warnings"
+
+    effectiveScope.toLowerCase match {
+      case "cursor" =>
+        IQMcpClient
+          .callGetDiagnostics(
+            severity = severity,
+            scope = IQMcpClient.DiagnosticScope.Selection,
+            timeoutMs = timeoutMs,
+            selectionArgs = selectionArgsForCurrentView(view)
+          )
+          .fold(
+            err => s"Error: $err",
+            diagnostics => s"${diagnostics.count} $severityLabel at cursor"
+          )
+
+      case "all" =>
+        currentBufferPath(view).fold(
+          err => err,
+          path =>
+            IQMcpClient
+              .callGetDiagnostics(
+                severity = severity,
+                scope = IQMcpClient.DiagnosticScope.File,
+                timeoutMs = timeoutMs,
+                path = Some(path)
+              )
+              .fold(
+                mcpErr => s"Error: $mcpErr",
+                diagnostics => s"${diagnostics.count} $severityLabel in current buffer"
+              )
+        )
+
+      case _ =>
+        resolveTheoryPath(effectiveScope).fold(
+          err => err,
+          path =>
+            IQMcpClient
+              .callGetDiagnostics(
+                severity = severity,
+                scope = IQMcpClient.DiagnosticScope.File,
+                timeoutMs = timeoutMs,
+                path = Some(path)
+              )
+              .fold(
+                mcpErr => s"Error: $mcpErr",
+                diagnostics => s"${diagnostics.count} $severityLabel in theory '$effectiveScope'"
+              )
+        )
+    }
+  }
+
+  /** Get all diagnostics (both errors and warnings) for "all" severity mode. */
+  private def execGetDiagnosticsAll(
+      args: ResponseParser.ToolArgs,
+      view: View,
+      countOnly: Boolean
+  ): String = {
+    val timeoutMs = readToolsTimeoutMs
+    val rawScope = safeStringArg(args, "scope", 200)
+    val effectiveScope = if (rawScope.isEmpty) "all" else rawScope
+
+    effectiveScope.toLowerCase match {
+      case "cursor" =>
+        val latch = new CountDownLatch(2)
+        @volatile var errorResult: Option[IQMcpClient.DiagnosticsResult] = None
+        @volatile var warningResult: Option[IQMcpClient.DiagnosticsResult] = None
+        val selectionArgs = selectionArgsForCurrentView(view)
+        
+        val _ = Isabelle_Thread.fork(name = "get-errors") {
+          errorResult = IQMcpClient.callGetDiagnostics(
+            severity = IQMcpClient.DiagnosticSeverity.Error,
+            scope = IQMcpClient.DiagnosticScope.Selection,
+            timeoutMs = timeoutMs,
+            selectionArgs = selectionArgs
+          ).toOption
+          latch.countDown()
+        }
+        
+        val _ = Isabelle_Thread.fork(name = "get-warnings") {
+          warningResult = IQMcpClient.callGetDiagnostics(
+            severity = IQMcpClient.DiagnosticSeverity.Warning,
+            scope = IQMcpClient.DiagnosticScope.Selection,
+            timeoutMs = timeoutMs,
+            selectionArgs = selectionArgs
+          ).toOption
+          latch.countDown()
+        }
+        
+        val _ = latch.await(timeoutMs * 2 + 1000, TimeUnit.MILLISECONDS)
+        
+        val errorCount = errorResult.map(_.count).getOrElse(0)
+        val warningCount = warningResult.map(_.count).getOrElse(0)
+        
+        if (countOnly) {
+          s"$errorCount errors, $warningCount warnings at cursor"
+        } else {
+          val errors = errorResult.toList.flatMap(_.diagnostics)
+          val warnings = warningResult.toList.flatMap(_.diagnostics)
+          val combined = (errors ++ warnings).sortBy(_.line)
+          if (combined.isEmpty) "No errors or warnings at cursor position."
+          else combined.map(d => s"Line ${d.line}: ${d.message}").mkString("\n")
+        }
+
+      case "all" =>
+        currentBufferPath(view).fold(
+          err => err,
+          path => {
+            val latch = new CountDownLatch(2)
+            @volatile var errorResult: Option[IQMcpClient.DiagnosticsResult] = None
+            @volatile var warningResult: Option[IQMcpClient.DiagnosticsResult] = None
+            
+            val _ = Isabelle_Thread.fork(name = "get-errors") {
+              errorResult = IQMcpClient.callGetDiagnostics(
+                severity = IQMcpClient.DiagnosticSeverity.Error,
+                scope = IQMcpClient.DiagnosticScope.File,
+                timeoutMs = timeoutMs,
+                path = Some(path)
+              ).toOption
+              latch.countDown()
+            }
+            
+            val _ = Isabelle_Thread.fork(name = "get-warnings") {
+              warningResult = IQMcpClient.callGetDiagnostics(
+                severity = IQMcpClient.DiagnosticSeverity.Warning,
+                scope = IQMcpClient.DiagnosticScope.File,
+                timeoutMs = timeoutMs,
+                path = Some(path)
+              ).toOption
+              latch.countDown()
+            }
+            
+            val _ = latch.await(timeoutMs * 2 + 1000, TimeUnit.MILLISECONDS)
+            
+            val errorCount = errorResult.map(_.count).getOrElse(0)
+            val warningCount = warningResult.map(_.count).getOrElse(0)
+            
+            if (countOnly) {
+              s"$errorCount errors, $warningCount warnings in current buffer"
+            } else {
+              val errors = errorResult.toList.flatMap(_.diagnostics)
+              val warnings = warningResult.toList.flatMap(_.diagnostics)
+              val combined = (errors ++ warnings).sortBy(_.line)
+              if (combined.isEmpty) "No errors or warnings in current buffer."
+              else combined.map(d => s"Line ${d.line}: ${d.message}").mkString("\n")
+            }
+          }
+        )
+
+      case _ =>
+        resolveTheoryPath(effectiveScope).fold(
+          err => err,
+          path => {
+            val latch = new CountDownLatch(2)
+            @volatile var errorResult: Option[IQMcpClient.DiagnosticsResult] = None
+            @volatile var warningResult: Option[IQMcpClient.DiagnosticsResult] = None
+            
+            val _ = Isabelle_Thread.fork(name = "get-errors") {
+              errorResult = IQMcpClient.callGetDiagnostics(
+                severity = IQMcpClient.DiagnosticSeverity.Error,
+                scope = IQMcpClient.DiagnosticScope.File,
+                timeoutMs = timeoutMs,
+                path = Some(path)
+              ).toOption
+              latch.countDown()
+            }
+            
+            val _ = Isabelle_Thread.fork(name = "get-warnings") {
+              warningResult = IQMcpClient.callGetDiagnostics(
+                severity = IQMcpClient.DiagnosticSeverity.Warning,
+                scope = IQMcpClient.DiagnosticScope.File,
+                timeoutMs = timeoutMs,
+                path = Some(path)
+              ).toOption
+              latch.countDown()
+            }
+            
+            val _ = latch.await(timeoutMs * 2 + 1000, TimeUnit.MILLISECONDS)
+            
+            val errorCount = errorResult.map(_.count).getOrElse(0)
+            val warningCount = warningResult.map(_.count).getOrElse(0)
+            
+            if (countOnly) {
+              s"$errorCount errors, $warningCount warnings in theory '$effectiveScope'"
+            } else {
+              val errors = errorResult.toList.flatMap(_.diagnostics)
+              val warnings = warningResult.toList.flatMap(_.diagnostics)
+              val combined = (errors ++ warnings).sortBy(_.line)
+              if (combined.isEmpty) s"No errors or warnings in theory '$effectiveScope'."
+              else combined.map(d => s"Line ${d.line}: ${d.message}").mkString("\n")
+            }
+          }
+        )
+    }
+  }
 
   /** Move cursor to specified line in current theory via GUI thread. Returns confirmation or error. */
   private def execSetCursorPosition(
@@ -1734,23 +2312,29 @@ object AssistantTools {
                       writeResult.fold(
                         err => s"Error: $err",
                         _ => {
-                          val contextStart = math.max(1, startLine - 3)
-                          val contextEnd = math.max(contextStart, startLine + 5)
-                          val context = IQMcpClient
+                          // Get updated line count from the write result or re-read if needed
+                          val newLineCount = IQMcpClient
                             .callReadFileLine(
                               path = path,
-                              startLine = Some(contextStart),
-                              endLine = Some(contextEnd),
+                              startLine = Some(1),
+                              endLine = Some(-1),
                               timeoutMs = readToolsTimeoutMs
                             )
-                            .getOrElse("")
+                            .map(lineCountFromNumberedContent)
+                            .getOrElse(-1)
+                          
                           val action = operation match {
-                            case "insert"  => s"Inserted ${text.linesIterator.size} lines before line $startLine"
-                            case "replace" => s"Replaced lines $startLine-$endLine"
-                            case "delete"  => s"Deleted lines $startLine-$endLine"
+                            case "insert"  => 
+                              val linesInserted = text.linesIterator.size
+                              s"Inserted $linesInserted line${if (linesInserted == 1) "" else "s"} before line $startLine"
+                            case "replace" => 
+                              s"Replaced lines $startLine-$endLine"
+                            case "delete"  => 
+                              s"Deleted lines $startLine-$endLine"
                           }
-                          if (context.trim.isEmpty) action
-                          else s"$action\n\nContext:\n$context"
+                          
+                          if (newLineCount > 0) s"$action. Theory now has $newLineCount lines."
+                          else action
                         }
                       )
                     }
@@ -1834,7 +2418,7 @@ object AssistantTools {
     safeTheoryArg(args) match {
       case Left(err)     => err
       case Right(theory) =>
-        val maxResultsRaw = intArg(args, "max_results", 200)
+        val maxResultsRaw = intArg(args, "max_results", AssistantConstants.DEFAULT_GET_ENTITIES_MAX_RESULTS)
         val maxResults = math.max(1, math.min(1000, maxResultsRaw))
         resolveTheoryPath(theory).fold(
           err => err,

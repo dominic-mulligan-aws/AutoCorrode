@@ -118,17 +118,18 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     required.length shouldBe 1
   }
 
-  test("trace_simplifier should exist with optional method param") {
+  test("trace_simplifier should exist with optional method and max_lines params") {
     val tool = AssistantTools.tools.find(_.name == "trace_simplifier")
     tool should not be empty
     val params = tool.get.params
-    params.length shouldBe 1
-    params.head.name shouldBe "method"
-    params.head.required shouldBe false
+    params.length shouldBe 2
+    params.exists(_.name == "method") shouldBe true
+    params.exists(_.name == "max_lines") shouldBe true
+    params.forall(!_.required) shouldBe true
   }
 
-  test("all tools should have exactly 34 entries") {
-    AssistantTools.tools.length shouldBe 34
+  test("all tools should have exactly 39 entries") {
+    AssistantTools.tools.length shouldBe 39
   }
 
   test("tool names should follow naming convention") {
@@ -193,7 +194,7 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
 
     integerParams should not be empty
     for ((toolName, paramName) <- integerParams) {
-      val validIntParams = Set("start_line", "end_line", "max_results", "line", "task_id")
+      val validIntParams = Set("start_line", "end_line", "max_results", "max_lines", "line", "task_id", "index")
       validIntParams should contain(paramName)
     }
   }
@@ -237,10 +238,13 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     tool.get.params shouldBe empty
   }
 
-  test("get_context_info should exist and require no params") {
+  test("get_context_info should exist with optional quick param") {
     val tool = AssistantTools.tools.find(_.name == "get_context_info")
     tool should not be empty
-    tool.get.params shouldBe empty
+    tool.get.params.length shouldBe 1
+    tool.get.params.head.name shouldBe "quick"
+    tool.get.params.head.typ shouldBe "boolean"
+    tool.get.params.head.required shouldBe false
   }
 
   test("search_all_theories should exist with required pattern and optional max_results") {
