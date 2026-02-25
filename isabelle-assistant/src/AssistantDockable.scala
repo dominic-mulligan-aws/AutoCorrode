@@ -164,6 +164,12 @@ class AssistantDockable(view: View, position: String)
   @volatile private var renderedMessageCount = 0
   @volatile private var welcomeShown = false
 
+  // Input history navigation
+  private var inputHistory: List[String] = Nil       // Oldest → newest
+  private var inputHistoryIndex: Int = -1             // -1 = not browsing
+  private var savedDraft: String = ""                 // Draft saved when user starts browsing
+  @volatile private var lastEscapeTime: Long = 0L     // For double-tap Escape
+
   // UI Components
   private val badgeContainer = createBadgeContainer()
   private val htmlPane = createHtmlPane()
@@ -534,11 +540,44 @@ class AssistantDockable(view: View, position: String)
       "cancel-or-clear",
       new javax.swing.AbstractAction() {
         def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
-          if (AssistantDockable._busy) AssistantDockable.cancel()
-          else clearChat()
+          val now = System.currentTimeMillis()
+          if (AssistantDockable._busy) {
+            AssistantDockable.cancel()
+          } else if (chatInput.getText.trim.nonEmpty) {
+            chatInput.setText("")
+            inputHistoryIndex = -1
+            savedDraft = ""
+            lastEscapeTime = now
+          } else if (now - lastEscapeTime < 400) {
+            clearChat()
+            lastEscapeTime = 0L
+          } else {
+            // Input already empty, single Esc — still clear conversation for backward compat
+            clearChat()
+          }
         }
       }
     )
+
+    // Save original caret-up / caret-down actions for delegation
+    val originalUp = actionMap.get("caret-up")
+    val originalDown = actionMap.get("caret-down")
+
+    inputMap.put(javax.swing.KeyStroke.getKeyStroke("UP"), "history-or-up")
+    actionMap.put("history-or-up", new javax.swing.AbstractAction() {
+      def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
+        if (isCaretOnFirstLine) navigateHistoryBack()
+        else if (originalUp != null) originalUp.actionPerformed(e)
+      }
+    })
+
+    inputMap.put(javax.swing.KeyStroke.getKeyStroke("DOWN"), "history-or-down")
+    actionMap.put("history-or-down", new javax.swing.AbstractAction() {
+      def actionPerformed(e: java.awt.event.ActionEvent): Unit = {
+        if (isCaretOnLastLine) navigateHistoryForward()
+        else if (originalDown != null) originalDown.actionPerformed(e)
+      }
+    })
   }
 
   private def setupAccessibilityHandlers(): Unit = {
@@ -621,8 +660,60 @@ class AssistantDockable(view: View, position: String)
     badgeContainer.setVisible(false)
     welcomeShown = false
     renderedMessageCount = 0
+    inputHistory = Nil
+    inputHistoryIndex = -1
+    savedDraft = ""
     cardLayout.show(contentPanel, "html")
     chatInput.requestFocus()
+  }
+
+  private def isCaretOnFirstLine: Boolean = {
+    try {
+      val caretPos = chatInput.getCaretPosition
+      chatInput.getLineOfOffset(caretPos) == 0
+    } catch { case _: Exception => true }
+  }
+
+  private def isCaretOnLastLine: Boolean = {
+    try {
+      val caretPos = chatInput.getCaretPosition
+      chatInput.getLineOfOffset(caretPos) == chatInput.getLineCount - 1
+    } catch { case _: Exception => true }
+  }
+
+  private def navigateHistoryBack(): Unit = {
+    if (inputHistory.isEmpty) return
+    
+    // If we're not currently browsing, save the current draft
+    if (inputHistoryIndex == -1) {
+      savedDraft = chatInput.getText
+      inputHistoryIndex = 0
+    } else if (inputHistoryIndex < inputHistory.length - 1) {
+      inputHistoryIndex += 1
+    } else {
+      return // Already at oldest entry
+    }
+    
+    // Index 0 = most recent, so reverse-index into the list
+    val entry = inputHistory(inputHistory.length - 1 - inputHistoryIndex)
+    chatInput.setText(entry)
+    chatInput.setCaretPosition(entry.length)
+  }
+
+  private def navigateHistoryForward(): Unit = {
+    if (inputHistoryIndex == -1) return // Not browsing
+    
+    if (inputHistoryIndex > 0) {
+      inputHistoryIndex -= 1
+      val entry = inputHistory(inputHistory.length - 1 - inputHistoryIndex)
+      chatInput.setText(entry)
+      chatInput.setCaretPosition(entry.length)
+    } else {
+      // Back to draft
+      inputHistoryIndex = -1
+      chatInput.setText(savedDraft)
+      chatInput.setCaretPosition(savedDraft.length)
+    }
   }
 
   private val maxInputLength =
@@ -640,6 +731,11 @@ class AssistantDockable(view: View, position: String)
         )
       } else {
         chatInput.setText("")
+        // Add to input history (avoid consecutive duplicates)
+        if (inputHistory.isEmpty || inputHistory.last != message)
+          inputHistory = inputHistory :+ message
+        inputHistoryIndex = -1
+        savedDraft = ""
         AssistantDockable.resetCancel()
         ChatAction.chat(view, message)
       }
