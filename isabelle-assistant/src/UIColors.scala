@@ -159,25 +159,23 @@ object UIColors {
   
   // Ask user widget colors (matches assistant message aesthetic with amber accent)
   object AskUser {
-    // Keep card backgrounds white so rendered LaTeX integrates cleanly.
-    def background: String = "white"
+    def background: String = ThemeUtils.themedHex("#2a2a2a", "#ffffff")
     def border: String = ThemeUtils.themedHex("#d4a020", "#f5a623")  // Amber left border
     
     // Title ("Assistant needs your input")
-    def title: String = "#5f6368"  // Same as message timestamps
+    def title: String = ThemeUtils.themedHex("#90a4ae", "#5f6368")
     
     // Context subtitle
-    def contextText: String = "#777777"  // Muted
+    def contextText: String = ThemeUtils.themedHex("#888888", "#777777")
     
     // Option link colors
-    def optionText: String = "#444444"
+    def optionText: String = ThemeUtils.themedHex("#cccccc", "#444444")
     def optionLetter: String = ThemeUtils.themedHex("#d4a020", "#f5a623")  // Amber accent
   }
   
   // Task list widget colors (blue accent for task/work semantics)
   object TaskList {
-    // Keep card backgrounds white so rendered LaTeX integrates cleanly.
-    def background: String = "white"
+    def background: String = ThemeUtils.themedHex("#2a2a2a", "#ffffff")
     def border: String = ThemeUtils.themedHex("#1565c0", "#1976d2")  // Blue left border
     
     // Header text ("Task List")
@@ -195,7 +193,7 @@ object UIColors {
     // Text colors
     def irrelevantText: String = ThemeUtils.themedHex("#616161", "#9e9e9e") // strikethrough text
     def labelColor: String = ThemeUtils.themedHex("#b0bec5", "#607d8b")     // "Description:" labels
-    def taskText: String = "#333333"       // Task title/description
+    def taskText: String = ThemeUtils.themedHex("#e0e0e0", "#333333")       // Task title/description
   }
   
   

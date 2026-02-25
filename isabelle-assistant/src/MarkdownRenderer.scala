@@ -244,58 +244,65 @@ object MarkdownRenderer {
     sb.append("</div></div>")
   }
 
+  // Cached compiled patterns for syntax highlighting
+  private lazy val keywordPattern: java.util.regex.Pattern = {
+    val keywords = IsabelleKeywords.forSyntaxHighlighting.toList.sortBy(-_.length) // longest first
+    val alternation = keywords.map(java.util.regex.Pattern.quote).mkString("\\b(", "|", ")\\b")
+    java.util.regex.Pattern.compile(alternation)
+  }
+
+  private lazy val typePattern: java.util.regex.Pattern = {
+    val types = IsabelleKeywords.builtinTypes.toList.sortBy(-_.length) // longest first
+    val alternation = types.map(java.util.regex.Pattern.quote).mkString("\\b(", "|", ")\\b")
+    java.util.regex.Pattern.compile(alternation)
+  }
+
+  private val entityProtectionPattern = java.util.regex.Pattern.compile("&[a-z]+;")
+  private val stringLiteralPattern = java.util.regex.Pattern.compile("(&quot;[^&]*?&quot;)")
+  private val commentPattern = java.util.regex.Pattern.compile("(\\(\\*.*?\\*\\))")
+
   /** Highlight Isabelle code with syntax coloring. Input is already
     * HTML-escaped. Protects HTML entities from highlighting to avoid corruption.
+    * Uses compiled regex patterns for O(text) performance instead of O(keywords × text).
     */
   private def highlightIsabelle(escaped: String): String = {
-    // Use canonical keyword database
-    val keywords = IsabelleKeywords.forSyntaxHighlighting
-    val types = IsabelleKeywords.builtinTypes
-
     val keywordColor = UIColors.Syntax.keyword
     val typeColor = UIColors.Syntax.typeColor
     val commentColor = UIColors.Syntax.comment
     val stringColor = UIColors.Syntax.stringLiteral
 
     // Step 1: Extract and protect HTML entities
-    val entityPattern = """&[a-z]+;""".r
     val entityMap = scala.collection.mutable.Map[String, String]()
     var entityCounter = 0
-    var result = entityPattern.replaceAllIn(escaped, m => {
+    val matcher1 = entityProtectionPattern.matcher(escaped)
+    val result1 = new StringBuffer()
+    while (matcher1.find()) {
       val placeholder = s"\u0003E${entityCounter}\u0003"
-      entityMap(placeholder) = m.matched
+      entityMap(placeholder) = matcher1.group()
       entityCounter += 1
-      java.util.regex.Matcher.quoteReplacement(placeholder)
-    })
+      val _ = matcher1.appendReplacement(result1, java.util.regex.Matcher.quoteReplacement(placeholder))
+    }
+    val _ = matcher1.appendTail(result1)
+    var result = result1.toString
 
     // Step 2: Apply syntax highlighting on entity-protected text
-    // Highlight keywords using word boundaries (subtle, no bold)
-    for (kw <- keywords) {
-      val pattern = s"\\b($kw)\\b"
-      result = result.replaceAll(
-        pattern,
-        s"<span style='color:$keywordColor;'>$$1</span>"
-      )
-    }
+    // Highlight keywords using single compiled pattern
+    result = keywordPattern.matcher(result).replaceAll(
+      s"<span style='color:$keywordColor;'>$$1</span>"
+    )
 
-    // Highlight types
-    for (typ <- types) {
-      val pattern = s"\\b($typ)\\b"
-      result = result.replaceAll(
-        pattern,
-        s"<span style='color:$typeColor;'>$$1</span>"
-      )
-    }
+    // Highlight types using single compiled pattern
+    result = typePattern.matcher(result).replaceAll(
+      s"<span style='color:$typeColor;'>$$1</span>"
+    )
 
     // Highlight string literals "..." (already entity-protected above)
-    result = result.replaceAll(
-      "(&quot;[^&]*?&quot;)",
+    result = stringLiteralPattern.matcher(result).replaceAll(
       s"<span style='color:$stringColor;'>$$1</span>"
     )
 
     // Highlight comments (*...*) - already escaped as &lt;...&gt; but entity-protected
-    result = result.replaceAll(
-      "(\\(\\*.*?\\*\\))",
+    result = commentPattern.matcher(result).replaceAll(
       s"<span style='color:$commentColor;font-style:italic;'>$$1</span>"
     )
 

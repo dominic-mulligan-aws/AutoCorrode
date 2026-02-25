@@ -12,32 +12,10 @@ import org.scalatest.matchers.should.Matchers
  */
 class PayloadBuilderTest extends AnyFunSuite with Matchers {
 
-  // --- Provider detection ---
-
-  test("isAnthropicModel should detect Anthropic models") {
-    PayloadBuilder.isAnthropicModel("anthropic.claude-v2") shouldBe true
-    PayloadBuilder.isAnthropicModel("anthropic.claude-3-sonnet-20240229-v1:0") shouldBe true
-  }
-
-  test("isAnthropicModel should handle CRIS-prefixed IDs") {
-    PayloadBuilder.isAnthropicModel("us.anthropic.claude-3-sonnet") shouldBe true
-    PayloadBuilder.isAnthropicModel("eu.anthropic.claude-3-sonnet") shouldBe true
-    PayloadBuilder.isAnthropicModel("ap.anthropic.claude-v2") shouldBe true
-    PayloadBuilder.isAnthropicModel("global.anthropic.claude-haiku-4-5") shouldBe true
-  }
-
-  test("isAnthropicModel should reject non-Anthropic models") {
-    PayloadBuilder.isAnthropicModel("meta.llama3-70b") shouldBe false
-    PayloadBuilder.isAnthropicModel("amazon.titan-text") shouldBe false
-    PayloadBuilder.isAnthropicModel("mistral.mistral-7b") shouldBe false
-    PayloadBuilder.isAnthropicModel("us.meta.llama3-70b") shouldBe false
-    PayloadBuilder.isAnthropicModel("") shouldBe false
-  }
-
   // --- Payload construction ---
 
   test("buildPayload for Anthropic should include anthropic_version and messages array") {
-    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello", 0.5, 1000)
+    val payload = PayloadBuilder.buildPayload("Hello", 0.5, 1000)
     payload should include("anthropic_version")
     payload should include("bedrock-2023-05-31")
     payload should include("messages")
@@ -47,7 +25,7 @@ class PayloadBuilderTest extends AnyFunSuite with Matchers {
   }
 
   test("buildPayload for Anthropic with system prompt should include system field") {
-    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello", 0.5, 1000, Some("You are helpful"))
+    val payload = PayloadBuilder.buildPayload("Hello", 0.5, 1000, Some("You are helpful"))
     payload should include("anthropic_version")
     payload should include("system")
     payload should include("You are helpful")
@@ -56,19 +34,19 @@ class PayloadBuilderTest extends AnyFunSuite with Matchers {
   }
 
   test("buildPayload for Anthropic with empty system prompt should not include system field") {
-    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello", 0.5, 1000, Some(""))
+    val payload = PayloadBuilder.buildPayload("Hello", 0.5, 1000, Some(""))
     payload should not include "system"
   }
 
   test("buildPayload should properly escape special characters") {
-    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello \"world\" \n test", 0.5, 1000)
+    val payload = PayloadBuilder.buildPayload("Hello \"world\" \n test", 0.5, 1000)
     // Jackson handles JSON escaping automatically
     payload should include("Hello")
   }
 
   test("buildChatPayload for Anthropic should include system prompt separately") {
     val payload = PayloadBuilder.buildChatPayload(
-      "anthropic.claude-v2", "You are helpful", List(("user", "Hi")), 0.3, 2000)
+      "You are helpful", List(("user", "Hi")), 0.3, 2000)
     payload should include("system")
     payload should include("You are helpful")
     payload should include("messages")
@@ -78,7 +56,7 @@ class PayloadBuilderTest extends AnyFunSuite with Matchers {
   test("buildChatPayload should handle multiple messages") {
     val messages = List(("user", "Hello"), ("assistant", "Hi there"), ("user", "Help me"))
     val payload = PayloadBuilder.buildChatPayload(
-      "anthropic.claude-v2", "System", messages, 0.3, 2000)
+      "System", messages, 0.3, 2000)
     payload should include("Hello")
     payload should include("Hi there")
     payload should include("Help me")

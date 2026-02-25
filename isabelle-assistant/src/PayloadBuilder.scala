@@ -17,28 +17,18 @@ import java.io.StringWriter
 object PayloadBuilder {
   private val jsonFactory = new JsonFactory()
 
-  // --- Provider detection ---
-
-  /** Check if a model ID belongs to the Anthropic provider.
-   *  Handles CRIS-prefixed IDs like "us.anthropic.claude-..." and global inference profiles. */
-  def isAnthropicModel(modelId: String): Boolean = {
-    val stripped = if (modelId.matches("^(us|eu|ap|global)\\..*")) modelId.dropWhile(_ != '.').drop(1) else modelId
-    stripped.startsWith("anthropic.")
-  }
-
   // --- Chat payloads ---
 
   /**
    * Build request payload for chat-style interactions (Anthropic only).
    *
-   * @param modelId The Bedrock model identifier (must be Anthropic)
    * @param systemPrompt The system prompt
    * @param messages The conversation history as (role, content) pairs
    * @param temperature The sampling temperature (0.0-1.0)
    * @param maxTokens Maximum tokens to generate
    * @return JSON payload string
    */
-  def buildChatPayload(modelId: String, systemPrompt: String, messages: List[(String, String)], temperature: Double, maxTokens: Int): String = {
+  def buildChatPayload(systemPrompt: String, messages: List[(String, String)], temperature: Double, maxTokens: Int): String = {
     writeJson { g =>
       g.writeStringField("anthropic_version", "bedrock-2023-05-31")
       g.writeNumberField("max_tokens", maxTokens)
@@ -60,14 +50,13 @@ object PayloadBuilder {
   /**
    * Build request payload for single prompt interactions (Anthropic only).
    *
-   * @param modelId The Bedrock model identifier (must be Anthropic)
    * @param prompt The complete prompt text
    * @param temperature The sampling temperature (0.0-1.0)
    * @param maxTokens Maximum tokens to generate
    * @param systemPrompt Optional system prompt
    * @return JSON payload string
    */
-  def buildPayload(modelId: String, prompt: String, temperature: Double, maxTokens: Int, systemPrompt: Option[String] = None): String = {
+  def buildPayload(prompt: String, temperature: Double, maxTokens: Int, systemPrompt: Option[String] = None): String = {
     writeJson { g =>
       g.writeStringField("anthropic_version", "bedrock-2023-05-31")
       g.writeNumberField("max_tokens", maxTokens)
