@@ -533,7 +533,8 @@ object BedrockClient {
     Output.writeln(s"[Assistant] invokeChat - Model: $modelId, Messages: ${messages.length}")
 
     val maxChars = AssistantConstants.MAX_CHAT_CONTEXT_CHARS
-    val systemCost = if (PayloadBuilder.isProvider(modelId, "anthropic")) 0 else fullSystemPrompt.length
+    // Anthropic doesn't count system prompt against message context budget
+    val systemCost = 0
     val truncated = truncateTurns(messages, maxChars, systemCost)
     if (truncated.length < messages.length)
       Output.writeln(s"[Assistant] invokeChat - Truncated ${messages.length - truncated.length} old messages")
@@ -844,11 +845,8 @@ object BedrockClient {
     Output.writeln(s"[Assistant] Temperature: $temperature, Max tokens: $maxTokens")
     Output.writeln(s"[Assistant] Prompt length: ${totalLength} chars (system: ${systemPrompt.length}, user: ${prompt.length})")
 
-    // Use buildChatPayload when system prompt exists to ensure it's sent as a proper system field
-    val payload = if (systemPrompt.nonEmpty)
-      PayloadBuilder.buildChatPayload(modelId, systemPrompt, List(("user", prompt)), temperature, maxTokens)
-    else
-      PayloadBuilder.buildPayload(modelId, prompt, temperature, maxTokens)
+    // Build payload with system prompt
+    val payload = PayloadBuilder.buildChatPayload(modelId, systemPrompt, List(("user", prompt)), temperature, maxTokens)
 
     val request = InvokeModelRequest.builder()
       .modelId(modelId)
@@ -859,7 +857,7 @@ object BedrockClient {
     val response = getClient.invokeModel(request)
     val responseBody = response.body().asUtf8String()
 
-    val parsed = ResponseParser.parseResponseEither(modelId, responseBody) match {
+    val parsed = ResponseParser.parseResponseEither(responseBody) match {
       case Right(text) => text
       case Left(err)   => throw new RuntimeException(err.message)
     }
@@ -876,5 +874,6 @@ object BedrockClient {
       catch { case NonFatal(_) => () }
     }
     cachedClient = None
+    currentViewTL.remove()
   }
 }

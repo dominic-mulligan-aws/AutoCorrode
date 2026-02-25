@@ -6,11 +6,11 @@ package isabelle.assistant
 import software.amazon.awssdk.thirdparty.jackson.core.{JsonFactory, JsonToken}
 import java.io.StringWriter
 
-/** Parses JSON responses from different Bedrock model providers. Extracted from
+/** Parses JSON responses from Anthropic models on AWS Bedrock. Extracted from
   * BedrockClient for testability and separation of concerns.
   *
-  * Handles response formats for: Anthropic (Claude), Meta (Llama), Amazon
-  * (Titan), Mistral, and generic models.
+  * Handles only Anthropic Claude response format. The Assistant enforces this
+  * requirement via BedrockClient.requireAnthropicModel().
   */
 /** Schema for structured output via Anthropic tool_choice forcing. */
 case class StructuredResponseSchema(
@@ -34,11 +34,9 @@ object ResponseParser {
     }
   }
 
-  /** Parse response from Bedrock model using Jackson JSON parser. Throws on
+  /** Parse response from Anthropic Bedrock model using Jackson JSON parser. Throws on
     * empty/unparseable responses so callers don't treat errors as valid text.
     *
-    * @param modelId
-    *   The model identifier (determines which fields to extract)
     * @param json
     *   The raw JSON response string
     * @return
@@ -46,8 +44,8 @@ object ResponseParser {
     * @throws RuntimeException
     *   on empty/unparseable responses
     */
-  def parseResponse(modelId: String, json: String): String = {
-    parseResponseEither(modelId, json) match {
+  def parseResponse(json: String): String = {
+    parseResponseEither(json) match {
       case Right(value) => value
       case Left(ParseError.InvalidJson(details)) =>
         throw new RuntimeException(
@@ -59,15 +57,12 @@ object ResponseParser {
     }
   }
 
-  def parseResponseEither(
-      modelId: String,
-      json: String
-  ): Either[ParseError, String] = {
+  def parseResponseEither(json: String): Either[ParseError, String] = {
     if (json == null || json.trim.isEmpty) Left(ParseError.EmptyResponse)
     else {
       val parser = jsonFactory.createParser(json)
       try {
-        extractTextField(parser, modelId).toRight(ParseError.MissingTextField)
+        extractTextField(parser).toRight(ParseError.MissingTextField)
       } catch {
         case ex: Exception => Left(ParseError.InvalidJson(ex.getMessage))
       } finally {
@@ -76,26 +71,13 @@ object ResponseParser {
     }
   }
 
-  /** Extract text content fields from a Bedrock JSON response, collecting all
-    * matching blocks.
-    */
+  /** Extract text content from an Anthropic JSON response (content array with text blocks). */
   private[assistant] def extractTextField(
-      parser: software.amazon.awssdk.thirdparty.jackson.core.JsonParser,
-      modelId: String
+      parser: software.amazon.awssdk.thirdparty.jackson.core.JsonParser
   ): Option[String] = {
-    val targetFields =
-      if (PayloadBuilder.isProvider(modelId, "anthropic")) Set("text")
-      else if (PayloadBuilder.isProvider(modelId, "meta")) Set("generation")
-      else if (PayloadBuilder.isProvider(modelId, "amazon")) Set("outputText")
-      else Set("text", "content", "output", "response", "generation")
-
     val results = scala.collection.mutable.ListBuffer[String]()
     while (parser.nextToken() != null) {
-      if (
-        parser.currentToken() == JsonToken.FIELD_NAME && targetFields.contains(
-          parser.currentName()
-        )
-      ) {
+      if (parser.currentToken() == JsonToken.FIELD_NAME && parser.currentName() == "text") {
         parser.nextToken()
         if (parser.currentToken() == JsonToken.VALUE_STRING) {
           val value = parser.getValueAsString

@@ -34,7 +34,6 @@ enum ToolId(val wireName: String) {
   case EditTheory extends ToolId("edit_theory")
   case TryMethods extends ToolId("try_methods")
   case GetEntities extends ToolId("get_entities")
-  case WebSearch extends ToolId("web_search")
   case CreateTheory extends ToolId("create_theory")
   case OpenTheory extends ToolId("open_theory")
   case AskUser extends ToolId("ask_user")

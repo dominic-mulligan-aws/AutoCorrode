@@ -7,8 +7,8 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 
 /**
- * Tests for ResponseParser: JSON response parsing for all providers,
- * and the critical Anthropic content block parser that had zero test coverage.
+ * Tests for ResponseParser: Anthropic JSON response parsing.
+ * Updated to test only Anthropic support (non-Anthropic providers removed).
  */
 class ResponseParserTest extends AnyFunSuite with Matchers {
 
@@ -16,65 +16,44 @@ class ResponseParserTest extends AnyFunSuite with Matchers {
 
   test("parseResponse should extract text from Anthropic response") {
     val json = """{"content":[{"type":"text","text":"Hello world"}],"stop_reason":"end_turn"}"""
-    ResponseParser.parseResponse("anthropic.claude-v2", json) shouldBe "Hello world"
-  }
-
-  test("parseResponse should extract generation from Meta response") {
-    val json = """{"generation":"Hello from Llama","stop_reason":"stop"}"""
-    ResponseParser.parseResponse("meta.llama3-70b", json) shouldBe "Hello from Llama"
-  }
-
-  test("parseResponse should extract outputText from Amazon Titan response") {
-    val json = """{"results":[{"outputText":"Hello from Titan"}]}"""
-    ResponseParser.parseResponse("amazon.titan-text-express-v1", json) shouldBe "Hello from Titan"
-  }
-
-  test("parseResponse should extract text from generic response") {
-    val json = """{"text":"Generic response"}"""
-    ResponseParser.parseResponse("custom.model-v1", json) shouldBe "Generic response"
+    ResponseParser.parseResponse(json) shouldBe "Hello world"
   }
 
   test("parseResponse should throw on null input") {
     a [RuntimeException] should be thrownBy {
-      ResponseParser.parseResponse("anthropic.claude-v2", null)
+      ResponseParser.parseResponse(null)
     }
   }
 
   test("parseResponse should throw on empty input") {
     a [RuntimeException] should be thrownBy {
-      ResponseParser.parseResponse("anthropic.claude-v2", "")
+      ResponseParser.parseResponse("")
     }
   }
 
   test("parseResponse should throw on whitespace-only input") {
     a [RuntimeException] should be thrownBy {
-      ResponseParser.parseResponse("anthropic.claude-v2", "   ")
+      ResponseParser.parseResponse("   ")
     }
   }
 
   test("parseResponse should throw on JSON with no text field") {
     a [RuntimeException] should be thrownBy {
-      ResponseParser.parseResponse("anthropic.claude-v2", """{"id":"msg_123","model":"claude"}""")
+      ResponseParser.parseResponse("""{"id":"msg_123","model":"claude"}""")
     }
   }
 
   test("parseResponseEither should return typed parse errors") {
-    ResponseParser.parseResponseEither("anthropic.claude-v2", "") shouldBe
+    ResponseParser.parseResponseEither("") shouldBe
       Left(ResponseParser.ParseError.EmptyResponse)
     ResponseParser.parseResponseEither(
-      "anthropic.claude-v2",
       """{"id":"msg_123","model":"claude"}"""
     ) shouldBe Left(ResponseParser.ParseError.MissingTextField)
   }
 
-  test("parseResponse should handle CRIS-prefixed model IDs") {
-    val json = """{"content":[{"type":"text","text":"CRIS response"}],"stop_reason":"end_turn"}"""
-    ResponseParser.parseResponse("us.anthropic.claude-3-sonnet", json) shouldBe "CRIS response"
-  }
-
   test("parseResponse should collect multiple text blocks from Anthropic") {
     val json = """{"content":[{"type":"text","text":"Part 1"},{"type":"text","text":"Part 2"}],"stop_reason":"end_turn"}"""
-    val result = ResponseParser.parseResponse("anthropic.claude-v2", json)
+    val result = ResponseParser.parseResponse(json)
     result should include("Part 1")
     result should include("Part 2")
   }

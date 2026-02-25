@@ -96,4 +96,9 @@ object AssistantConstants {
   val STATUS_CANCELLED = "Cancelled"
   val STATUS_THINKING = "Thinking..."
   val STATUS_VERIFYING = "Verifying..."
+  
+  // Security: Sensitive argument name patterns for redaction
+  val SENSITIVE_ARG_TOKENS: Set[String] = Set(
+    "token", "secret", "password", "auth", "credential", "api_key"
+  )
 }

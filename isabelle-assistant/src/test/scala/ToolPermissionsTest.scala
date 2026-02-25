@@ -50,8 +50,15 @@ class ToolPermissionsTest
   }
 
   test("PermissionLevel.fromDisplayString should reject invalid display labels") {
-    ToolPermissions.PermissionLevel.fromDisplayString("ask always") shouldBe None
     ToolPermissions.PermissionLevel.fromDisplayString("Unknown") shouldBe None
+    ToolPermissions.PermissionLevel.fromDisplayString("InvalidLevel") shouldBe None
+    ToolPermissions.PermissionLevel.fromDisplayString("") shouldBe None
+  }
+
+  test("PermissionLevel.fromDisplayString should be case-insensitive") {
+    ToolPermissions.PermissionLevel.fromDisplayString("ask always") shouldBe Some(ToolPermissions.AskAlways)
+    ToolPermissions.PermissionLevel.fromDisplayString("ASK ALWAYS") shouldBe Some(ToolPermissions.AskAlways)
+    ToolPermissions.PermissionLevel.fromDisplayString("allow") shouldBe Some(ToolPermissions.Allow)
   }
 
   test("all tools should have default permissions defined") {
@@ -79,7 +86,7 @@ class ToolPermissionsTest
   }
 
   test("side-effect tools should default to AskAlways") {
-    val sideEffectTools = List("edit_theory", "create_theory", "open_theory", "web_search")
+    val sideEffectTools = List("edit_theory", "create_theory", "open_theory")
     for (toolName <- sideEffectTools) {
       val level = ToolPermissions.getConfiguredLevel(toolName)
       level shouldBe ToolPermissions.AskAlways
@@ -98,13 +105,14 @@ class ToolPermissionsTest
     decision shouldBe ToolPermissions.Allowed
   }
 
-  test("AskAlways tools should still prompt even if session-allowed state exists") {
+  test("AskAlways tools should always prompt even if session-allowed") {
     ToolPermissions.clearSession()
     ToolPermissions.setSessionAllowedForTest("edit_theory")
     val decision = ToolPermissions.checkPermission(
       "edit_theory",
       Map.empty[String, ResponseParser.ToolValue]
     )
+    // Correct behavior: AskAlways tools MUST always prompt
     decision shouldBe ToolPermissions.NeedPrompt(ToolId.EditTheory, None, None)
   }
 
@@ -128,14 +136,14 @@ class ToolPermissionsTest
 
   test("prompt details should redact sensitive argument names") {
     val decision = ToolPermissions.checkPermission(
-      "web_search",
+      "edit_theory",
       Map(
-        "query" -> ResponseParser.StringValue("isabelle afp"),
+        "theory" -> ResponseParser.StringValue("Scratch"),
         "auth_token" -> ResponseParser.StringValue("super-secret-token")
       )
     )
     decision match {
-      case ToolPermissions.NeedPrompt(ToolId.WebSearch, _, Some(details)) =>
+      case ToolPermissions.NeedPrompt(ToolId.EditTheory, _, Some(details)) =>
         details should include("auth_token=***")
         details should not include "super-secret-token"
       case other =>
@@ -152,16 +160,16 @@ class ToolPermissionsTest
   }
 
   test("getVisibleTools should exclude tools configured as Deny") {
-    ToolPermissions.setConfiguredLevel("web_search", ToolPermissions.Deny)
+    ToolPermissions.setConfiguredLevel("edit_theory", ToolPermissions.Deny)
     val visibleNames = ToolPermissions.getVisibleTools.map(_.name).toSet
-    visibleNames should not contain "web_search"
+    visibleNames should not contain "edit_theory"
     visibleNames should contain("read_theory")
   }
 
   test("all tools should have descriptions for permission prompts") {
     val permissions = ToolPermissions.getAllToolPermissions
     permissions should not be empty
-    permissions.length shouldBe 35 // All 35 tools
+    permissions.length shouldBe 34 // All 34 tools
   }
 
   test("toolDescriptions should cover every defined tool") {
@@ -202,9 +210,9 @@ class ToolPermissionsTest
     ToolPermissions.getConfiguredLevel("edit_theory") shouldBe ToolPermissions.AskAlways
   }
 
-  test("getAllToolPermissions should return all 35 tools") {
+  test("getAllToolPermissions should return all 34 tools") {
     val all = ToolPermissions.getAllToolPermissions
-    all.length shouldBe 35
+    all.length shouldBe 34
     all.map(_._1).toSet shouldBe AssistantTools.tools.map(_.name).toSet
   }
 
