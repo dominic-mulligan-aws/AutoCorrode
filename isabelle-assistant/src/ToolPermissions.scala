@@ -157,7 +157,6 @@ object ToolPermissions {
     ToolId.EditTheory -> AskAlways,
     ToolId.CreateTheory -> AskAlways,
     ToolId.OpenTheory -> AskAlways,
-    ToolId.WebSearch -> AskAlways,
     
     // Meta-tool for user interaction → Always Allow (exempt from permission checks)
     ToolId.AskUser -> Allow,
@@ -204,7 +203,6 @@ object ToolPermissions {
     ToolId.EditTheory -> "modify theory file content",
     ToolId.CreateTheory -> "create new theory files",
     ToolId.OpenTheory -> "open existing theory files",
-    ToolId.WebSearch -> "search the web",
     ToolId.AskUser -> "ask you questions",
     ToolId.TaskListAdd -> "add items to the task list",
     ToolId.TaskListDone -> "mark task list items as done",
@@ -251,18 +249,13 @@ object ToolPermissions {
         args.get("name").map(n => s"${ResponseParser.toolValueToString(n)}.thy")
       case ToolId.OpenTheory =>
         args.get("path").map(ResponseParser.toolValueToString)
-      case ToolId.WebSearch =>
-        args.get("query").map(q => s"query: ${ResponseParser.toolValueToString(q)}")
       case _ => None
     }
   }
 
-  private val sensitiveArgTokens =
-    Set("token", "secret", "password", "auth", "credential", "api_key")
-
   private def isSensitiveArg(argName: String): Boolean = {
     val lowered = argName.toLowerCase(Locale.ROOT)
-    sensitiveArgTokens.exists(token => lowered.contains(token))
+    AssistantConstants.SENSITIVE_ARG_TOKENS.exists(token => lowered.contains(token))
   }
 
   private def summarizeArgs(
@@ -372,10 +365,9 @@ object ToolPermissions {
             summarizeArgs(args)
           )
       case AskAlways =>
-        // For AskAlways, respect session-allow if user explicitly chose it
-        // but always prompt if not session-allowed
-        if (isSessionAllowed(toolId)) Allowed
-        else NeedPrompt(toolId, extractResource(toolId, args), summarizeArgs(args))
+        // AskAlways MUST always prompt - never respect session state
+        // This ensures the user is asked every single time
+        NeedPrompt(toolId, extractResource(toolId, args), summarizeArgs(args))
     }
   }
 

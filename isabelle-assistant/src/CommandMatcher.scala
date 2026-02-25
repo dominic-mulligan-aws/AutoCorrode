@@ -1,8 +1,13 @@
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: MIT
+/* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+   SPDX-License-Identifier: MIT */
 
 package isabelle.assistant
 
+/**
+ * Token-boundary-aware keyword matching for Isabelle commands.
+ * Provides safe keyword detection that respects word boundaries, avoiding
+ * false matches on substrings (e.g., "auto" should not match in "automatic").
+ */
 object CommandMatcher {
 
   /** Safely checks if a string starts with a specific keyword, respecting token

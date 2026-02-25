@@ -7,63 +7,31 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 
 /**
- * Tests for PayloadBuilder: provider detection, Llama version detection,
- * and JSON payload construction for all supported model providers.
+ * Tests for PayloadBuilder: Anthropic model detection and JSON payload construction.
+ * Updated to test only Anthropic support (non-Anthropic providers removed).
  */
 class PayloadBuilderTest extends AnyFunSuite with Matchers {
 
   // --- Provider detection ---
 
-  test("isProvider should detect anthropic") {
-    PayloadBuilder.isProvider("anthropic.claude-v2", "anthropic") shouldBe true
-    PayloadBuilder.isProvider("anthropic.claude-3-sonnet", "anthropic") shouldBe true
+  test("isAnthropicModel should detect Anthropic models") {
+    PayloadBuilder.isAnthropicModel("anthropic.claude-v2") shouldBe true
+    PayloadBuilder.isAnthropicModel("anthropic.claude-3-sonnet-20240229-v1:0") shouldBe true
   }
 
-  test("isProvider should detect meta") {
-    PayloadBuilder.isProvider("meta.llama3-70b-instruct", "meta") shouldBe true
+  test("isAnthropicModel should handle CRIS-prefixed IDs") {
+    PayloadBuilder.isAnthropicModel("us.anthropic.claude-3-sonnet") shouldBe true
+    PayloadBuilder.isAnthropicModel("eu.anthropic.claude-3-sonnet") shouldBe true
+    PayloadBuilder.isAnthropicModel("ap.anthropic.claude-v2") shouldBe true
+    PayloadBuilder.isAnthropicModel("global.anthropic.claude-haiku-4-5") shouldBe true
   }
 
-  test("isProvider should detect mistral") {
-    PayloadBuilder.isProvider("mistral.mistral-7b-instruct", "mistral") shouldBe true
-  }
-
-  test("isProvider should detect amazon") {
-    PayloadBuilder.isProvider("amazon.titan-text-express-v1", "amazon") shouldBe true
-  }
-
-  test("isProvider should handle CRIS-prefixed IDs") {
-    PayloadBuilder.isProvider("us.anthropic.claude-3-sonnet", "anthropic") shouldBe true
-    PayloadBuilder.isProvider("eu.anthropic.claude-3-sonnet", "anthropic") shouldBe true
-    PayloadBuilder.isProvider("ap.meta.llama3-70b", "meta") shouldBe true
-    PayloadBuilder.isProvider("global.anthropic.claude-haiku-4-5", "anthropic") shouldBe true
-  }
-
-  test("isProvider should reject mismatches") {
-    PayloadBuilder.isProvider("anthropic.claude-v2", "meta") shouldBe false
-    PayloadBuilder.isProvider("meta.llama3-70b", "anthropic") shouldBe false
-    PayloadBuilder.isProvider("us.anthropic.claude-v2", "meta") shouldBe false
-  }
-
-  // --- Llama version detection ---
-
-  test("isLlama3OrLater should detect Llama 3") {
-    PayloadBuilder.isLlama3OrLater("meta.llama3-70b-instruct") shouldBe true
-    PayloadBuilder.isLlama3OrLater("meta.llama-3-8b") shouldBe true
-  }
-
-  test("isLlama3OrLater should detect Llama 4") {
-    PayloadBuilder.isLlama3OrLater("meta.llama4-maverick") shouldBe true
-    PayloadBuilder.isLlama3OrLater("meta.llama-4-scout") shouldBe true
-  }
-
-  test("isLlama3OrLater should reject Llama 2") {
-    PayloadBuilder.isLlama3OrLater("meta.llama2-70b-chat") shouldBe false
-    PayloadBuilder.isLlama3OrLater("meta.llama-2-13b") shouldBe false
-  }
-
-  test("isLlama3OrLater should default to false for unrecognised version") {
-    // Models with no explicit version marker should default to Llama 2 format to be safe
-    PayloadBuilder.isLlama3OrLater("meta.llama-unknown") shouldBe false
+  test("isAnthropicModel should reject non-Anthropic models") {
+    PayloadBuilder.isAnthropicModel("meta.llama3-70b") shouldBe false
+    PayloadBuilder.isAnthropicModel("amazon.titan-text") shouldBe false
+    PayloadBuilder.isAnthropicModel("mistral.mistral-7b") shouldBe false
+    PayloadBuilder.isAnthropicModel("us.meta.llama3-70b") shouldBe false
+    PayloadBuilder.isAnthropicModel("") shouldBe false
   }
 
   // --- Payload construction ---
@@ -92,41 +60,10 @@ class PayloadBuilderTest extends AnyFunSuite with Matchers {
     payload should not include "system"
   }
 
-  test("buildPayload for Meta Llama 3+ should use begin_of_text format") {
-    val payload = PayloadBuilder.buildPayload("meta.llama3-70b-instruct", "Hello", 0.5, 1000)
-    payload should include("begin_of_text")
-    payload should include("start_header_id")
+  test("buildPayload should properly escape special characters") {
+    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello \"world\" \n test", 0.5, 1000)
+    // Jackson handles JSON escaping automatically
     payload should include("Hello")
-    payload should include("max_gen_len")
-  }
-
-  test("buildPayload for Meta Llama 2 should use simple prompt format") {
-    val payload = PayloadBuilder.buildPayload("meta.llama2-70b-chat", "Hello", 0.5, 1000)
-    payload should include("Hello")
-    payload should include("max_gen_len")
-    payload should not include "begin_of_text"
-  }
-
-  test("buildPayload for Mistral should use INST format") {
-    val payload = PayloadBuilder.buildPayload("mistral.mistral-7b-instruct", "Hello", 0.5, 1000)
-    payload should include("[INST]")
-    payload should include("Hello")
-    payload should include("max_tokens")
-  }
-
-  test("buildPayload for Amazon Titan should use inputText format") {
-    val payload = PayloadBuilder.buildPayload("amazon.titan-text-express-v1", "Hello", 0.5, 1000)
-    payload should include("inputText")
-    payload should include("Hello")
-    payload should include("maxTokenCount")
-    payload should include("textGenerationConfig")
-  }
-
-  test("buildPayload for unknown provider should use generic messages format") {
-    val payload = PayloadBuilder.buildPayload("custom.model-v1", "Hello", 0.5, 1000)
-    payload should include("messages")
-    payload should include("Hello")
-    payload should include("max_tokens")
   }
 
   test("buildChatPayload for Anthropic should include system prompt separately") {
@@ -145,20 +82,6 @@ class PayloadBuilderTest extends AnyFunSuite with Matchers {
     payload should include("Hello")
     payload should include("Hi there")
     payload should include("Help me")
-  }
-
-  test("buildChatPayload for Llama 3 should include system in prompt header") {
-    val payload = PayloadBuilder.buildChatPayload(
-      "meta.llama3-70b-instruct", "System prompt", List(("user", "Question")), 0.3, 2000)
-    payload should include("system")
-    payload should include("System prompt")
-    payload should include("Question")
-  }
-
-  test("buildPayload should properly escape special characters") {
-    val payload = PayloadBuilder.buildPayload("anthropic.claude-v2", "Hello \"world\" \n test", 0.5, 1000)
-    // Jackson handles JSON escaping automatically
-    payload should include("Hello")
   }
 
   test("isAnthropicStructuredContent should accept valid content block arrays") {

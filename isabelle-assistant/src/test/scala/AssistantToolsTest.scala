@@ -127,8 +127,8 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     params.head.required shouldBe false
   }
 
-  test("all tools should have exactly 35 entries") {
-    AssistantTools.tools.length shouldBe 35
+  test("all tools should have exactly 34 entries") {
+    AssistantTools.tools.length shouldBe 34
   }
 
   test("tool names should follow naming convention") {
@@ -356,18 +356,6 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     required.length shouldBe 1
   }
 
-  test("web_search should exist with required query and optional max_results") {
-    val tool = AssistantTools.tools.find(_.name == "web_search")
-    tool should not be empty
-    val params = tool.get.params
-    params.length shouldBe 2
-    val required = params.filter(_.required)
-    required.length shouldBe 1
-    required.head.name shouldBe "query"
-    val optional = params.filterNot(_.required)
-    optional.head.name shouldBe "max_results"
-  }
-
   test("create_theory should exist with required name param") {
     val tool = AssistantTools.tools.find(_.name == "create_theory")
     tool should not be empty
@@ -398,11 +386,6 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
   test("batch tools should mention efficiency") {
     val tool = AssistantTools.tools.find(_.name == "try_methods").get
     tool.description.toLowerCase should (include("efficient") or include("multiple"))
-  }
-
-  test("web_search should not require I/Q") {
-    val tool = AssistantTools.tools.find(_.name == "web_search").get
-    tool.description.toLowerCase should not include "i/q"
   }
 
   test("ask_user should exist with required question and options params") {

@@ -301,18 +301,6 @@ object AssistantTools {
       )
     ),
     ToolDef(
-      "web_search",
-      "Search the web for Isabelle documentation, AFP entries, or formalization patterns. Returns titles, snippets, and URLs from search results.",
-      List(
-        ToolParam("query", "string", "Search query", required = true),
-        ToolParam(
-          "max_results",
-          "integer",
-          "Maximum results to return (default: 5)"
-        )
-      )
-    ),
-    ToolDef(
       "create_theory",
       "Create a new Isabelle theory file in the same directory as the current buffer. The file will be opened in jEdit after creation.",
       List(
@@ -564,7 +552,6 @@ object AssistantTools {
       ToolId.EditTheory -> ((a, v) => execEditTheory(a, v)),
       ToolId.TryMethods -> ((a, v) => execTryMethods(a, v)),
       ToolId.GetEntities -> ((a, v) => execGetEntities(a, v)),
-      ToolId.WebSearch -> ((a, _) => execWebSearch(a)),
       ToolId.CreateTheory -> ((a, v) => execCreateTheory(a, v)),
       ToolId.OpenTheory -> ((a, v) => execOpenTheory(a, v)),
       ToolId.AskUser -> ((a, v) => execAskUser(a, v)),
@@ -630,9 +617,6 @@ object AssistantTools {
 
   /** Maximum length for search pattern arguments. */
   private val MAX_PATTERN_ARG_LENGTH = 500
-
-  private val sensitiveArgTokens =
-    Set("token", "secret", "password", "auth", "credential", "api_key")
 
   /** Valid theory reference pattern (for referring to already-open theories). */
   private val THEORY_REFERENCE_PATTERN = """^[A-Za-z0-9_.\-/]+$""".r
@@ -829,7 +813,7 @@ object AssistantTools {
 
   private def isSensitiveArgName(argName: String): Boolean = {
     val lowered = argName.toLowerCase(Locale.ROOT)
-    sensitiveArgTokens.exists(token => lowered.contains(token))
+    AssistantConstants.SENSITIVE_ARG_TOKENS.exists(token => lowered.contains(token))
   }
 
   private def summarizeToolArgsForLog(args: ResponseParser.ToolArgs): String =
@@ -1195,12 +1179,13 @@ object AssistantTools {
         )
   }
 
-  private def execGetErrors(
+  private def execGetDiagnostics(
       args: ResponseParser.ToolArgs,
-      view: View
+      view: View,
+      severity: IQMcpClient.DiagnosticSeverity,
+      emptyMsgPrefix: String
   ): String = {
     val timeoutMs = readToolsTimeoutMs
-
     val rawScope = safeStringArg(args, "scope", 200)
     val effectiveScope = if (rawScope.isEmpty) "all" else rawScope
 
@@ -1208,7 +1193,7 @@ object AssistantTools {
       case "cursor" =>
         IQMcpClient
           .callGetDiagnostics(
-            severity = IQMcpClient.DiagnosticSeverity.Error,
+            severity = severity,
             scope = IQMcpClient.DiagnosticScope.Selection,
             timeoutMs = timeoutMs,
             selectionArgs = selectionArgsForCurrentView(view)
@@ -1216,7 +1201,7 @@ object AssistantTools {
           .fold(
             err => s"Error: $err",
             diagnostics =>
-              formatDiagnosticsMessages(diagnostics, "No errors at cursor position.")
+              formatDiagnosticsMessages(diagnostics, s"$emptyMsgPrefix at cursor position.")
           )
 
       case "all" =>
@@ -1225,7 +1210,7 @@ object AssistantTools {
           path =>
             IQMcpClient
               .callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Error,
+                severity = severity,
                 scope = IQMcpClient.DiagnosticScope.File,
                 timeoutMs = timeoutMs,
                 path = Some(path)
@@ -1235,7 +1220,7 @@ object AssistantTools {
                 diagnostics =>
                   formatDiagnosticsMessages(
                     diagnostics,
-                    "No errors in current buffer."
+                    s"$emptyMsgPrefix in current buffer."
                   )
               )
         )
@@ -1246,7 +1231,7 @@ object AssistantTools {
           path =>
             IQMcpClient
               .callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Error,
+                severity = severity,
                 scope = IQMcpClient.DiagnosticScope.File,
                 timeoutMs = timeoutMs,
                 path = Some(path)
@@ -1256,12 +1241,18 @@ object AssistantTools {
                 diagnostics =>
                   formatDiagnosticsMessages(
                     diagnostics,
-                    s"No errors in theory '$effectiveScope'."
+                    s"$emptyMsgPrefix in theory '$effectiveScope'."
                   )
               )
         )
     }
   }
+
+  private def execGetErrors(
+      args: ResponseParser.ToolArgs,
+      view: View
+  ): String =
+    execGetDiagnostics(args, view, IQMcpClient.DiagnosticSeverity.Error, "No errors")
 
   private def execGetDefinitions(
       args: ResponseParser.ToolArgs,
@@ -1416,10 +1407,11 @@ object AssistantTools {
 
   private def execGetContextInfo(view: View): String = {
     if (!IQAvailable.isAvailable) "I/Q plugin not available."
-    else
+    else {
+      val selectionArgs = selectionArgsForCurrentView(view)
       IQMcpClient
         .callGetContextInfo(
-          selectionArgs = selectionArgsForCurrentView(view),
+          selectionArgs = selectionArgs,
           timeoutMs = readToolsTimeoutMs
         )
         .fold(
@@ -1443,21 +1435,56 @@ object AssistantTools {
                 .flatMap(v => Option(v.getTextArea))
                 .flatMap(ta => Option(ta.getSelectedText))
                 .exists(_.trim.nonEmpty)
+            
+            // Check for actual errors/warnings at selection
+            val onError = IQMcpClient
+              .callGetDiagnostics(
+                severity = IQMcpClient.DiagnosticSeverity.Error,
+                scope = IQMcpClient.DiagnosticScope.Selection,
+                timeoutMs = readToolsTimeoutMs,
+                selectionArgs = selectionArgs
+              )
+              .toOption
+              .exists(_.diagnostics.nonEmpty)
+            
+            val onWarning = IQMcpClient
+              .callGetDiagnostics(
+                severity = IQMcpClient.DiagnosticSeverity.Warning,
+                scope = IQMcpClient.DiagnosticScope.Selection,
+                timeoutMs = readToolsTimeoutMs,
+                selectionArgs = selectionArgs
+              )
+              .toOption
+              .exists(_.diagnostics.nonEmpty)
+            
+            // Check for type info at selection
+            val hasTypeInfo = IQMcpClient
+              .callGetTypeAtSelection(
+                selectionArgs = selectionArgs,
+                timeoutMs = readToolsTimeoutMs
+              )
+              .toOption
+              .exists(_.hasType)
+            
+            // Check if command is an apply-style proof
+            val hasApplyProof = commandKeyword.startsWith("apply") || commandKeyword == "by"
+            
             val parts = List(
               s"in_proof: ${ctx.inProofContext}",
               s"has_goal: ${ctx.hasGoal || ctx.goal.hasGoal}",
-              s"on_error: false",
-              s"on_warning: false",
+              s"on_error: $onError",
+              s"on_warning: $onWarning",
               s"has_selection: $hasSelection",
               s"has_command: ${ctx.command.source.trim.nonEmpty}",
-              s"has_type_info: false",
-              s"has_apply_proof: false",
+              s"has_type_info: $hasTypeInfo",
+              s"has_apply_proof: $hasApplyProof",
               s"on_definition: ${definitionKeywords.contains(commandKeyword)}",
               "iq_available: true"
             )
             parts.mkString("\n")
           }
         )
+    }
   }
 
   private def execSearchAllTheories(
@@ -1549,73 +1576,8 @@ object AssistantTools {
   private def execGetWarnings(
       args: ResponseParser.ToolArgs,
       view: View
-  ): String = {
-    val timeoutMs = readToolsTimeoutMs
-
-    val rawScope = safeStringArg(args, "scope", 200)
-    val effectiveScope = if (rawScope.isEmpty) "all" else rawScope
-
-    effectiveScope.toLowerCase match {
-      case "cursor" =>
-        IQMcpClient
-          .callGetDiagnostics(
-            severity = IQMcpClient.DiagnosticSeverity.Warning,
-            scope = IQMcpClient.DiagnosticScope.Selection,
-            timeoutMs = timeoutMs,
-            selectionArgs = selectionArgsForCurrentView(view)
-          )
-          .fold(
-            err => s"Error: $err",
-            diagnostics =>
-              formatDiagnosticsMessages(
-                diagnostics,
-                "No warnings at cursor position."
-              )
-          )
-
-      case "all" =>
-        currentBufferPath(view).fold(
-          err => err,
-          path =>
-            IQMcpClient
-              .callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Warning,
-                scope = IQMcpClient.DiagnosticScope.File,
-                timeoutMs = timeoutMs,
-                path = Some(path)
-              )
-              .fold(
-                mcpErr => s"Error: $mcpErr",
-                diagnostics =>
-                  formatDiagnosticsMessages(
-                    diagnostics,
-                    "No warnings in current buffer."
-                  )
-              )
-        )
-
-      case _ =>
-        resolveTheoryPath(effectiveScope).fold(
-          err => err,
-          path =>
-            IQMcpClient
-              .callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Warning,
-                scope = IQMcpClient.DiagnosticScope.File,
-                timeoutMs = timeoutMs,
-                path = Some(path)
-              )
-              .fold(
-                mcpErr => s"Error: $mcpErr",
-                diagnostics =>
-                  formatDiagnosticsMessages(
-                    diagnostics,
-                    s"No warnings in theory '$effectiveScope'."
-                  )
-              )
-        )
-    }
-  }
+  ): String =
+    execGetDiagnostics(args, view, IQMcpClient.DiagnosticSeverity.Warning, "No warnings")
 
   private def execSetCursorPosition(
       args: ResponseParser.ToolArgs,
@@ -1844,56 +1806,6 @@ object AssistantTools {
     }
   }
 
-  private def execWebSearch(args: ResponseParser.ToolArgs): String = {
-    val query = safeStringArg(args, "query", MAX_PATTERN_ARG_LENGTH)
-    if (query.isEmpty) "Error: query required"
-    else {
-      val maxResults = math.min(10, math.max(1, intArg(args, "max_results", 5)))
-      try {
-        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = s"https://lite.duckduckgo.com/lite/?q=$encodedQuery"
-
-        val client = java.net.http.HttpClient
-          .newBuilder()
-          .connectTimeout(java.time.Duration.ofSeconds(10))
-          .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
-          .build()
-        val request = java.net.http.HttpRequest
-          .newBuilder()
-          .uri(java.net.URI.create(url))
-          .timeout(java.time.Duration.ofSeconds(10))
-          .GET()
-          .build()
-
-        val response = client.send(
-          request,
-          java.net.http.HttpResponse.BodyHandlers.ofString()
-        )
-        val html = response.body()
-
-        val results = scala.collection.mutable.ListBuffer[String]()
-        val linkPattern = """<a[^>]+href="([^"]+)"[^>]*>([^<]+)</a>""".r
-
-        import scala.util.boundary, boundary.break
-        boundary {
-          for (m <- linkPattern.findAllMatchIn(html).take(maxResults * 2)) {
-            val href = m.group(1)
-            val title = m.group(2).trim
-            if (!href.startsWith("//duckduckgo.com") && title.nonEmpty) {
-              results += s"$title\n  URL: $href"
-            }
-            if (results.length >= maxResults) break()
-          }
-        }
-
-        if (results.nonEmpty) results.mkString("\n\n")
-        else s"No search results found for: $query"
-      } catch {
-        case ex: Exception => s"Web search error: ${ex.getMessage}"
-      }
-    }
-  }
-
   private def execCreateTheory(
       args: ResponseParser.ToolArgs,
       view: View
@@ -2008,7 +1920,7 @@ object AssistantTools {
     
     AssistantDockable.setStatus("Waiting for your input...")
     
-    val timeout = 300L
+    val timeout = 60L
     var responded = false
     val endTime = System.currentTimeMillis() + timeout * 1000
     while (!responded && !AssistantDockable.isCancelled && System.currentTimeMillis() < endTime) {
@@ -2342,28 +2254,5 @@ object AssistantTools {
       args: ResponseParser.ToolArgs,
       key: String,
       default: Int
-  ): Int = {
-    args.get(key) match {
-      case Some(ResponseParser.DecimalValue(d)) if !d.isWhole =>
-        throw new IllegalArgumentException(
-          s"Parameter '$key' must be an integer, got decimal value: $d"
-        )
-      case Some(ResponseParser.DecimalValue(d)) => d.toInt
-      case Some(ResponseParser.IntValue(i))     => i
-      case Some(ResponseParser.StringValue(s))  =>
-        scala.util.Try(s.toInt).getOrElse(
-          throw new IllegalArgumentException(
-            s"Parameter '$key' must be an integer, got: '$s'"
-          )
-        )
-      case Some(ResponseParser.BooleanValue(_)) |
-          Some(ResponseParser.JsonValue(_)) =>
-        throw new IllegalArgumentException(
-          s"Parameter '$key' must be an integer"
-        )
-      case Some(ResponseParser.NullValue) =>
-        default
-      case _ => default
-    }
-  }
+  ): Int = optionalIntArg(args, key).getOrElse(default)
 }

@@ -125,13 +125,16 @@ object MenuContext {
     val startLine = math.max(0, centerLine - contextLines)
     val endLine = math.min(buffer.getLineCount - 1, centerLine + contextLines)
     
-    for (lineNum <- startLine to endLine) {
-      val lineText = buffer.getLineText(lineNum)
-      if (lineText != null && CommandMatcher.startsWithKeyword(lineText.trim, "apply")) {
-        return true
+    import scala.util.boundary, boundary.break
+    boundary {
+      for (lineNum <- startLine to endLine) {
+        val lineText = buffer.getLineText(lineNum)
+        if (lineText != null && CommandMatcher.startsWithKeyword(lineText.trim, "apply")) {
+          break(true)
+        }
       }
+      false
     }
-    false
   }
 
   /** Analyze cursor context using only local buffer text (no blocking MCP calls).

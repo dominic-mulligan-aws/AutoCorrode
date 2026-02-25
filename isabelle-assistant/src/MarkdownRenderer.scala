@@ -245,7 +245,7 @@ object MarkdownRenderer {
   }
 
   /** Highlight Isabelle code with syntax coloring. Input is already
-    * HTML-escaped.
+    * HTML-escaped. Protects HTML entities from highlighting to avoid corruption.
     */
   private def highlightIsabelle(escaped: String): String = {
     // Use canonical keyword database
@@ -257,8 +257,18 @@ object MarkdownRenderer {
     val commentColor = UIColors.Syntax.comment
     val stringColor = UIColors.Syntax.stringLiteral
 
-    var result = escaped
+    // Step 1: Extract and protect HTML entities
+    val entityPattern = """&[a-z]+;""".r
+    val entityMap = scala.collection.mutable.Map[String, String]()
+    var entityCounter = 0
+    var result = entityPattern.replaceAllIn(escaped, m => {
+      val placeholder = s"\u0003E${entityCounter}\u0003"
+      entityMap(placeholder) = m.matched
+      entityCounter += 1
+      java.util.regex.Matcher.quoteReplacement(placeholder)
+    })
 
+    // Step 2: Apply syntax highlighting on entity-protected text
     // Highlight keywords using word boundaries (subtle, no bold)
     for (kw <- keywords) {
       val pattern = s"\\b($kw)\\b"
@@ -277,17 +287,22 @@ object MarkdownRenderer {
       )
     }
 
-    // Highlight string literals "..."
+    // Highlight string literals "..." (already entity-protected above)
     result = result.replaceAll(
       "(&quot;[^&]*?&quot;)",
       s"<span style='color:$stringColor;'>$$1</span>"
     )
 
-    // Highlight comments (*...*) - already escaped as &lt;...&gt;
+    // Highlight comments (*...*) - already escaped as &lt;...&gt; but entity-protected
     result = result.replaceAll(
       "(\\(\\*.*?\\*\\))",
       s"<span style='color:$commentColor;font-style:italic;'>$$1</span>"
     )
+
+    // Step 3: Restore HTML entities
+    for ((placeholder, entity) <- entityMap) {
+      result = result.replace(placeholder, entity)
+    }
 
     result
   }
