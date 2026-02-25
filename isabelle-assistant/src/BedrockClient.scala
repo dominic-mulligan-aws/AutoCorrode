@@ -431,7 +431,7 @@ object BedrockClient {
       if (AssistantDockable.isCancelled)
         throw new RuntimeException("Operation cancelled")
       if (attempt > maxAttempts) {
-        recordFailure()
+        // Don't call recordFailure() here - already recorded in catch block of final attempt
         val msg = lastException.map(_.getMessage).getOrElse("Unknown error")
         throw new RuntimeException(ErrorHandler.makeUserFriendly(msg, "API call"))
       }
@@ -540,6 +540,11 @@ object BedrockClient {
       Output.writeln(s"[Assistant] invokeChat - Truncated ${messages.length - truncated.length} old messages")
 
     val merged = mergeConsecutiveTurns(truncated)
+    if (merged.isEmpty) {
+      throw new RuntimeException(
+        "Context budget exhausted — the conversation is too large. Clear chat history and try again."
+      )
+    }
 
     invokeChatWithTools(modelId, fullSystemPrompt, merged, temperature, maxTokens)
   }

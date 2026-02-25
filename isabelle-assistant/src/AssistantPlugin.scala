@@ -10,11 +10,12 @@ import org.gjt.sp.jedit.{EBMessage, EBPlugin}
 class AssistantPlugin extends EBPlugin {
   override def start(): Unit = {
     Output.writeln("Isabelle Assistant starting...")
-    IQAvailable.logStatus()
+    IQAvailable.startHeartbeat()
   }
 
   override def stop(): Unit = {
     Output.writeln("Isabelle Assistant stopping...")
+    IQAvailable.stopHeartbeat()
     AssistantDockable.shutdown()
     ToolPermissions.clearSession()
     BedrockClient.cleanup()

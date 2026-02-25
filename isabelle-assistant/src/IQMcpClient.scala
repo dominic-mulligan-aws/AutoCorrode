@@ -989,4 +989,77 @@ object IQMcpClient {
 
     callTool("explore", args, timeoutMs).map(decodeExploreResult)
   }
+
+  /** Lightweight ping to check if the I/Q MCP server is responsive.
+    * Uses a dedicated JSON-RPC method that doesn't touch any Isabelle state.
+    * Returns true if the server responds with ok status, false otherwise.
+    */
+  def ping(timeoutMs: Long = 500L): Boolean = {
+    try {
+      val tokenOpt = authTokenFromEnv()
+      val baseRequest = Map(
+        "jsonrpc" -> "2.0",
+        "id" -> nextRequestId(),
+        "method" -> "ping"
+      )
+      val request = tokenOpt match {
+        case Some(token) => baseRequest + ("auth_token" -> token)
+        case None => baseRequest
+      }
+
+      val socketTimeoutMs = {
+        val raw = timeoutMs + AssistantConstants.TIMEOUT_BUFFER_MS
+        val bounded = math.max(minSocketTimeoutMs.toLong, math.min(raw, Int.MaxValue.toLong))
+        bounded.toInt
+      }
+
+      var socket: Socket = null
+      var reader: BufferedReader = null
+      var writer: PrintWriter = null
+
+      try {
+        socket = new Socket()
+        socket.connect(
+          new InetSocketAddress(host, AssistantConstants.DEFAULT_MCP_PORT),
+          connectTimeoutMs
+        )
+        socket.setSoTimeout(socketTimeoutMs)
+
+        reader = new BufferedReader(
+          new InputStreamReader(socket.getInputStream, StandardCharsets.UTF_8)
+        )
+        writer = new PrintWriter(
+          new OutputStreamWriter(socket.getOutputStream, StandardCharsets.UTF_8),
+          true
+        )
+
+        writer.println(JSON.Format(request))
+        val responseLine = reader.readLine()
+
+        if (responseLine == null) false
+        else {
+          parseToolCallResponse(responseLine, None) match {
+            case Right(payload) =>
+              payload.get("status").contains("ok")
+            case Left(_) => false
+          }
+        }
+      } finally {
+        if (writer != null) {
+          try writer.close()
+          catch { case NonFatal(_) => () }
+        }
+        if (reader != null) {
+          try reader.close()
+          catch { case NonFatal(_) => () }
+        }
+        if (socket != null) {
+          try socket.close()
+          catch { case NonFatal(_) => () }
+        }
+      }
+    } catch {
+      case NonFatal(_) => false
+    }
+  }
 }

@@ -946,6 +946,9 @@ class IQServer(
               createToolsListResult().left.map(msg => (ErrorCodes.METHOD_NOT_FOUND, msg))
             case "tools/call" =>
               handleToolCall(request)
+            case "ping" =>
+              // Lightweight health check - no Isabelle state touched
+              Right(Map("status" -> "ok", "timestamp" -> System.currentTimeMillis()))
             case _ =>
               safeOutput(s"I/Q Server: Unknown method '$method'")
               Left((ErrorCodes.METHOD_NOT_FOUND, s"Method not found: $method"))
