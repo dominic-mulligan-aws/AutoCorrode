@@ -453,48 +453,51 @@ object AssistantTools {
   private[assistant] def toolDefinition(toolId: ToolId): Option[ToolDef] =
     toolsById.get(toolId)
 
+  /** Write a single tool definition to a JsonGenerator. Shared helper for writeToolsJson and writeFilteredToolsJson. */
+  private def writeToolJson(g: JsonGenerator, tool: ToolDef): Unit = {
+    g.writeStartObject()
+    g.writeStringField("name", tool.name)
+    g.writeStringField("description", tool.description)
+    g.writeObjectFieldStart("input_schema")
+    g.writeStringField("type", "object")
+    g.writeObjectFieldStart("properties")
+    for (p <- tool.params) {
+      g.writeObjectFieldStart(p.name)
+      g.writeStringField("type", p.typ)
+      g.writeStringField("description", p.description)
+      // Add enum constraints for specific parameters
+      if (tool.id == ToolId.EditTheory && p.name == "operation") {
+        g.writeArrayFieldStart("enum")
+        g.writeString("insert")
+        g.writeString("replace")
+        g.writeString("delete")
+        g.writeEndArray()
+      } else if (
+        (tool.id == ToolId.GetErrors || tool.id == ToolId.GetWarnings) && p.name == "scope"
+      ) {
+        g.writeArrayFieldStart("enum")
+        g.writeString("all")
+        g.writeString("cursor")
+        g.writeEndArray()
+      }
+      g.writeEndObject()
+    }
+    g.writeEndObject() // properties
+    val req = tool.params.filter(_.required).map(_.name)
+    if (req.nonEmpty) {
+      g.writeArrayFieldStart("required")
+      req.foreach(g.writeString)
+      g.writeEndArray()
+    }
+    g.writeEndObject() // input_schema
+    g.writeEndObject() // tool
+  }
+
   /** Write tool definitions into a JsonGenerator as the Anthropic tools array.
     */
   def writeToolsJson(g: JsonGenerator): Unit = {
     g.writeArrayFieldStart("tools")
-    for (tool <- tools) {
-      g.writeStartObject()
-      g.writeStringField("name", tool.name)
-      g.writeStringField("description", tool.description)
-      g.writeObjectFieldStart("input_schema")
-      g.writeStringField("type", "object")
-      g.writeObjectFieldStart("properties")
-      for (p <- tool.params) {
-        g.writeObjectFieldStart(p.name)
-        g.writeStringField("type", p.typ)
-        g.writeStringField("description", p.description)
-        // Add enum constraints for specific parameters
-        if (tool.id == ToolId.EditTheory && p.name == "operation") {
-          g.writeArrayFieldStart("enum")
-          g.writeString("insert")
-          g.writeString("replace")
-          g.writeString("delete")
-          g.writeEndArray()
-        } else if (
-          (tool.id == ToolId.GetErrors || tool.id == ToolId.GetWarnings) && p.name == "scope"
-        ) {
-          g.writeArrayFieldStart("enum")
-          g.writeString("all")
-          g.writeString("cursor")
-          g.writeEndArray()
-        }
-        g.writeEndObject()
-      }
-      g.writeEndObject() // properties
-      val req = tool.params.filter(_.required).map(_.name)
-      if (req.nonEmpty) {
-        g.writeArrayFieldStart("required")
-        req.foreach(g.writeString)
-        g.writeEndArray()
-      }
-      g.writeEndObject() // input_schema
-      g.writeEndObject() // tool
-    }
+    for (tool <- tools) writeToolJson(g, tool)
     g.writeEndArray()
   }
 
@@ -505,44 +508,7 @@ object AssistantTools {
   def writeFilteredToolsJson(g: JsonGenerator): Unit = {
     val visibleTools = ToolPermissions.getVisibleTools
     g.writeArrayFieldStart("tools")
-    for (tool <- visibleTools) {
-      g.writeStartObject()
-      g.writeStringField("name", tool.name)
-      g.writeStringField("description", tool.description)
-      g.writeObjectFieldStart("input_schema")
-      g.writeStringField("type", "object")
-      g.writeObjectFieldStart("properties")
-      for (p <- tool.params) {
-        g.writeObjectFieldStart(p.name)
-        g.writeStringField("type", p.typ)
-        g.writeStringField("description", p.description)
-        // Keep enum constraints aligned with writeToolsJson.
-        if (tool.id == ToolId.EditTheory && p.name == "operation") {
-          g.writeArrayFieldStart("enum")
-          g.writeString("insert")
-          g.writeString("replace")
-          g.writeString("delete")
-          g.writeEndArray()
-        } else if (
-          (tool.id == ToolId.GetErrors || tool.id == ToolId.GetWarnings) && p.name == "scope"
-        ) {
-          g.writeArrayFieldStart("enum")
-          g.writeString("all")
-          g.writeString("cursor")
-          g.writeEndArray()
-        }
-        g.writeEndObject()
-      }
-      g.writeEndObject() // properties
-      val req = tool.params.filter(_.required).map(_.name)
-      if (req.nonEmpty) {
-        g.writeArrayFieldStart("required")
-        req.foreach(g.writeString)
-        g.writeEndArray()
-      }
-      g.writeEndObject() // input_schema
-      g.writeEndObject() // tool
-    }
+    for (tool <- visibleTools) writeToolJson(g, tool)
     g.writeEndArray()
   }
 
