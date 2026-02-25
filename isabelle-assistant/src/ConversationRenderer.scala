@@ -48,7 +48,7 @@ object ConversationRenderer {
   def createAssistantMessageHtml(
       content: String,
       timestamp: String,
-      rawHtml: Boolean,
+      rawHtml: Boolean = false,
       registerAction: String => String
   ): String = {
     val isError = content.startsWith("Error:") || content.startsWith("[FAIL]")

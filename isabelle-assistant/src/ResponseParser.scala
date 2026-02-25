@@ -12,13 +12,6 @@ import java.io.StringWriter
   * Handles only Anthropic Claude response format. The Assistant enforces this
   * requirement via BedrockClient.requireAnthropicModel().
   */
-/** Schema for structured output via Anthropic tool_choice forcing. */
-case class StructuredResponseSchema(
-    name: String,
-    description: String,
-    jsonSchema: String
-)
-
 object ResponseParser {
   private val jsonFactory = new JsonFactory()
 

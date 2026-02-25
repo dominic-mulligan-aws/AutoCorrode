@@ -10,14 +10,14 @@ class ChatActionTest extends AnyFunSuite with Matchers {
 
   test("clearHistory should reset message count") {
     ChatAction.clearHistory()
-    ChatAction.getHistorySnapshot.length shouldBe 0
+    ChatAction.getHistory.length shouldBe 0
   }
 
   test("addMessage should append to history") {
     ChatAction.clearHistory()
     ChatAction.addMessage(ChatAction.User, "test message")
-    ChatAction.getHistorySnapshot.length shouldBe 1
-    ChatAction.getHistorySnapshot.head.content shouldBe "test message"
+    ChatAction.getHistory.length shouldBe 1
+    ChatAction.getHistory.head.content shouldBe "test message"
   }
 
   test("history should respect max size limit") {
@@ -26,7 +26,7 @@ class ChatActionTest extends AnyFunSuite with Matchers {
     for (i <- 1 to overLimit) {
       ChatAction.addMessage(ChatAction.User, s"message $i")
     }
-    ChatAction.getHistorySnapshot.length should be <= AssistantConstants.MAX_ACCUMULATED_MESSAGES
+    ChatAction.getHistory.length should be <= AssistantConstants.MAX_ACCUMULATED_MESSAGES
   }
 
   test("transient messages should be filterable") {
@@ -34,7 +34,7 @@ class ChatActionTest extends AnyFunSuite with Matchers {
     ChatAction.addMessage(ChatAction.Message(ChatAction.User, "regular", java.time.LocalDateTime.now()))
     ChatAction.addMessage(ChatAction.Message(ChatAction.Assistant, "transient", java.time.LocalDateTime.now(), transient = true))
     
-    val all = ChatAction.getHistorySnapshot
+    val all = ChatAction.getHistory
     all.length shouldBe 2
     
     val nonTransient = all.filterNot(_.transient)
@@ -57,12 +57,6 @@ class ChatActionTest extends AnyFunSuite with Matchers {
     names.length should be >= 24
   }
 
-  test("getHistory and getHistorySnapshot should return same result") {
-    ChatAction.clearHistory()
-    ChatAction.addMessage(ChatAction.User, "test")
-    ChatAction.getHistory shouldBe ChatAction.getHistorySnapshot
-  }
-
   test("history should be thread-safe with concurrent adds") {
     ChatAction.clearHistory()
     val threads = (1 to 10).map { i =>
@@ -76,7 +70,7 @@ class ChatActionTest extends AnyFunSuite with Matchers {
     threads.foreach(_.join())
     
     // Should have all 100 messages (within limit)
-    val history = ChatAction.getHistorySnapshot
+    val history = ChatAction.getHistory
     history.length shouldBe 100
   }
 }

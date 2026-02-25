@@ -13,6 +13,9 @@ package isabelle.assistant
  * - Use semantic colors (green=success, red=error, etc.)
  * - Maintain visual consistency across the plugin UI
  * - Support accessibility requirements (WCAG 2.1 AA minimum)
+ * 
+ * Accessibility: Design target is WCAG 2.1 AA (4.5:1 for normal text, 3:1 for large text).
+ * Contrast ratios should be verified when changing color values.
  */
 object UIColors {
 
@@ -173,6 +176,12 @@ object UIColors {
     def optionLetter: String = ThemeUtils.themedHex("#d4a020", "#f5a623")  // Amber accent
   }
   
+  // Model label colors (for the model display in the top panel)
+  object ModelLabel {
+    def muted: String = ThemeUtils.themedHex("#888888", "#888888")
+    def unconfigured: String = ThemeUtils.themedHex("#e57373", "#c62828")
+  }
+  
   // Task list widget colors (blue accent for task/work semantics)
   object TaskList {
     def background: String = ThemeUtils.themedHex("#2a2a2a", "#ffffff")
@@ -195,7 +204,6 @@ object UIColors {
     def labelColor: String = ThemeUtils.themedHex("#b0bec5", "#607d8b")     // "Description:" labels
     def taskText: String = ThemeUtils.themedHex("#e0e0e0", "#333333")       // Task title/description
   }
-  
   
   // Syntax highlighting colors for Isabelle code blocks (Rustdoc-inspired, subtle)
   object Syntax {

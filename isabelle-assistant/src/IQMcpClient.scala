@@ -16,9 +16,20 @@ import scala.util.control.NonFatal
   *
   * This keeps assistant-side orchestration code decoupled from direct Isabelle
   * runtime execution whenever an equivalent I/Q capability exists.
+  *
+  * NOTE: Each callTool invocation opens a new TCP socket. For the agentic loop
+  * which may make 10+ calls per turn, connection pooling would improve latency.
+  * Consider a persistent connection with a JSON-RPC message framing protocol.
   */
 object IQMcpClient {
 
+  /** Result from an I/Q explore query (proof verification, sledgehammer, find_theorems).
+    * @param success Whether the query completed successfully
+    * @param results Query output text (proof state, found theorems, etc.)
+    * @param message Human-readable status message
+    * @param timedOut Whether the query exceeded its timeout
+    * @param error Optional error message if the query failed
+    */
   final case class ExploreResult(
       success: Boolean,
       results: String,
@@ -27,6 +38,12 @@ object IQMcpClient {
       error: Option[String]
   )
 
+  /** Metadata for a single file from list_files query.
+    * @param path Absolute file path
+    * @param isTheory Whether the file is a .thy theory file
+    * @param isOpen Whether the file is currently open in jEdit
+    * @param theoryName Optional parsed theory name (without .thy extension)
+    */
   final case class ListedFile(
       path: String,
       isTheory: Boolean,
@@ -34,6 +51,12 @@ object IQMcpClient {
       theoryName: Option[String]
   )
 
+  /** Aggregated result from list_files query.
+    * @param files List of file metadata
+    * @param totalCount Total number of files returned
+    * @param openCount Count of open buffers
+    * @param theoryCount Count of .thy files
+    */
   final case class ListFilesResult(
       files: List[ListedFile],
       totalCount: Int,
@@ -41,16 +64,32 @@ object IQMcpClient {
       theoryCount: Int
   )
 
+  /** Single search match from read_file with mode=Search.
+    * @param lineNumber Line number where the match occurred (1-based)
+    * @param context Match context (may include surrounding lines)
+    */
   final case class ReadFileSearchMatch(
       lineNumber: Int,
       context: String
   )
 
+  /** Result from write_file operations (insert/replace/delete).
+    * @param commands List of affected command metadata
+    * @param summary Summary statistics about the write operation
+    */
   final case class WriteFileResult(
       commands: List[Map[String, Any]],
       summary: Map[String, Any]
   )
 
+  /** Result from open_file operation.
+    * @param path Absolute path to the opened file
+    * @param created Whether the file was newly created
+    * @param overwritten Whether an existing file was overwritten
+    * @param opened Whether the file was successfully opened
+    * @param inView Whether the file is now visible in a jEdit buffer
+    * @param message Status message from the operation
+    */
   final case class OpenFileResult(
       path: String,
       created: Boolean,
@@ -60,17 +99,35 @@ object IQMcpClient {
       message: String
   )
 
+  /** How a command was selected for I/Q operations. */
   sealed trait CommandSelection
+  /** Current cursor position (default). */
   case object CurrentSelection extends CommandSelection
+  /** Specific file offset.
+    * @param path File path
+    * @param requestedOffset Offset requested by caller
+    * @param normalizedOffset Offset after clamping to buffer bounds
+    */
   final case class FileOffsetSelection(
       path: String,
       requestedOffset: Option[Int],
       normalizedOffset: Option[Int]
   ) extends CommandSelection
+  /** Command matching a text pattern in a file. */
   final case class FilePatternSelection(path: String, pattern: String)
       extends CommandSelection
+  /** Unknown selection type (fallback). */
   final case class UnknownSelection(raw: String) extends CommandSelection
 
+  /** Metadata about an Isabelle command (from PIDE).
+    * @param id PIDE command ID
+    * @param length Source text length in characters
+    * @param source Full source text of the command
+    * @param keyword Isabelle keyword (lemma, theorem, apply, etc.)
+    * @param nodePath Optional file path of the command's theory
+    * @param startOffset Optional buffer offset where command starts
+    * @param endOffset Optional buffer offset where command ends
+    */
   final case class CommandInfo(
       id: Long,
       length: Int,
@@ -81,11 +138,23 @@ object IQMcpClient {
       endOffset: Option[Int]
   )
 
+  /** Result from resolving a command selection to a specific command.
+    * @param selection The command selection mode used
+    * @param command Metadata about the resolved command
+    */
   final case class ResolvedCommandTarget(
       selection: CommandSelection,
       command: CommandInfo
   )
 
+  /** Structured analysis of a proof goal extracted from PIDE markup.
+    * @param hasGoal Whether a goal is present at the cursor position
+    * @param goalText The rendered goal state text
+    * @param numSubgoals Count of subgoals (parsed from PIDE structure)
+    * @param freeVars Free (unbound) variables in the goal
+    * @param constants Constants referenced in the goal
+    * @param analysisError Optional error if goal parsing failed
+    */
   final case class GoalInfo(
       hasGoal: Boolean,
       goalText: String,
@@ -95,6 +164,13 @@ object IQMcpClient {
       analysisError: Option[String]
   )
 
+  /** Combined context information at a cursor position.
+    * @param selection How the command was selected (current, file_offset, pattern)
+    * @param command Metadata about the Isabelle command at the selection
+    * @param inProofContext Whether the cursor is inside a proof block
+    * @param hasGoal Whether there's an active proof goal
+    * @param goal Structured goal analysis (empty if hasGoal is false)
+    */
   final case class ContextInfoResult(
       selection: CommandSelection,
       command: CommandInfo,
@@ -103,6 +179,14 @@ object IQMcpClient {
       goal: GoalInfo
   )
 
+  /** Named entity from a theory file (lemma, definition, datatype, etc.).
+    * @param line Line number where the entity is defined (1-based)
+    * @param keyword Isabelle keyword (lemma, definition, fun, etc.)
+    * @param name Entity name
+    * @param startOffset Buffer offset where entity starts
+    * @param endOffset Buffer offset where entity ends
+    * @param sourcePreview Short preview of the entity source
+    */
   final case class EntityInfo(
       line: Int,
       keyword: String,
@@ -112,6 +196,14 @@ object IQMcpClient {
       sourcePreview: String
   )
 
+  /** Result from get_entities query.
+    * @param path File path
+    * @param nodeName Isabelle node name
+    * @param totalEntities Total count of entities in the theory
+    * @param returnedEntities Number of entities actually returned
+    * @param truncated Whether results were truncated due to limit
+    * @param entities List of entity metadata
+    */
   final case class EntitiesResult(
       path: String,
       nodeName: String,
@@ -121,6 +213,18 @@ object IQMcpClient {
       entities: List[EntityInfo]
   )
 
+  /** Result from get_type_at_selection query.
+    * @param selection Command selection metadata
+    * @param command Command metadata
+    * @param hasType Whether type information was found
+    * @param typeText Formatted type information string
+    * @param term The term whose type was queried
+    * @param typ The type string
+    * @param line Line number
+    * @param startOffset Optional start offset of the typed term
+    * @param endOffset Optional end offset of the typed term
+    * @param message Optional status/error message
+    */
   final case class TypeAtSelectionResult(
       selection: CommandSelection,
       command: CommandInfo,
@@ -134,6 +238,15 @@ object IQMcpClient {
       message: Option[String]
   )
 
+  /** Single proof block (lemma/theorem...qed/done) metadata.
+    * @param proofText Full source text of the proof block
+    * @param startOffset Buffer offset where proof starts
+    * @param endOffset Buffer offset where proof ends
+    * @param startLine Line number where proof starts (1-based)
+    * @param endLine Line number where proof ends (1-based)
+    * @param commandCount Number of Isabelle commands in the proof
+    * @param isApplyStyle Whether the proof uses apply-style (vs structured Isar)
+    */
   final case class ProofBlockInfo(
       proofText: String,
       startOffset: Int,
@@ -149,6 +262,18 @@ object IQMcpClient {
     case File extends ProofBlocksScope("file")
   }
 
+  /** Result from get_proof_blocks query.
+    * @param scope Whether blocks are for Selection (at cursor) or File (entire file)
+    * @param path File path (for File scope)
+    * @param nodeName Isabelle node name
+    * @param totalBlocks Total count of proof blocks found
+    * @param returnedBlocks Number of blocks actually returned
+    * @param truncated Whether results were truncated
+    * @param proofBlocks List of proof block metadata
+    * @param selection Command selection metadata (for Selection scope)
+    * @param command Command metadata (for Selection scope)
+    * @param message Optional status/error message
+    */
   final case class ProofBlocksResult(
       scope: ProofBlocksScope,
       path: Option[String],
@@ -162,6 +287,16 @@ object IQMcpClient {
       message: Option[String]
   )
 
+  /** Result from get_proof_context query (local facts and assumptions).
+    * @param selection Command selection metadata
+    * @param command Command metadata
+    * @param success Whether the query succeeded
+    * @param timedOut Whether the query exceeded timeout
+    * @param hasContext Whether context facts were found
+    * @param context Formatted context text (local facts, assumptions)
+    * @param message Human-readable status message
+    * @param error Optional error message if query failed
+    */
   final case class ProofContextResult(
       selection: CommandSelection,
       command: CommandInfo,
@@ -173,6 +308,17 @@ object IQMcpClient {
       error: Option[String]
   )
 
+  /** Result from get_definitions query.
+    * @param selection Command selection metadata
+    * @param command Command metadata
+    * @param names List of names that were looked up
+    * @param success Whether the query succeeded
+    * @param timedOut Whether the query exceeded timeout
+    * @param hasDefinitions Whether definitions were found
+    * @param definitions Formatted definition text
+    * @param message Human-readable status message
+    * @param error Optional error message if query failed
+    */
   final case class DefinitionsResult(
       selection: CommandSelection,
       command: CommandInfo,
@@ -195,6 +341,12 @@ object IQMcpClient {
     case File extends DiagnosticScope("file")
   }
 
+  /** A single error or warning diagnostic from PIDE.
+    * @param line Line number (1-based)
+    * @param startOffset Character offset where diagnostic starts
+    * @param endOffset Character offset where diagnostic ends
+    * @param message Diagnostic message text
+    */
   final case class DiagnosticEntry(
       line: Int,
       startOffset: Int,
@@ -202,6 +354,16 @@ object IQMcpClient {
       message: String
   )
 
+  /** Result from get_diagnostics query.
+    * @param scope Whether diagnostics are for Selection (at cursor) or File (entire buffer)
+    * @param severity Error or Warning
+    * @param count Total diagnostic count
+    * @param diagnostics List of diagnostic entries with line numbers and messages
+    * @param path File path (for File scope)
+    * @param nodeName Isabelle node name
+    * @param selection Command selection metadata (for Selection scope)
+    * @param command Command metadata (for Selection scope)
+    */
   final case class DiagnosticsResult(
       scope: DiagnosticScope,
       severity: DiagnosticSeverity,
