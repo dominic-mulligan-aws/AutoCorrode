@@ -7,7 +7,6 @@ import isabelle._
 import org.gjt.sp.jedit.View
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import scala.annotation.unused
-import scala.util.control.NonFatal
 import scala.jdk.CollectionConverters._
 import software.amazon.awssdk.thirdparty.jackson.core.JsonGenerator
 
@@ -713,7 +712,7 @@ object AssistantTools {
         executeToolResult(toolId, args, view)
       case ToolPermissions.Denied =>
         val name = toolId.wireName
-        safeLog(s"[Permissions] Tool '$name' denied by policy")
+        ErrorHandler.safeLog(s"[Permissions] Tool '$name' denied by policy")
         PermissionDenied(s"Permission denied: tool '$name' is not allowed.")
       case ToolPermissions.NeedPrompt(promptToolId, resource, details) =>
         val toolName = promptToolId.wireName
@@ -721,12 +720,12 @@ object AssistantTools {
           case ToolPermissions.Allowed =>
             executeToolResult(toolId, args, view)
           case ToolPermissions.Denied =>
-            safeLog(s"[Permissions] User denied tool '$toolName'")
+            ErrorHandler.safeLog(s"[Permissions] User denied tool '$toolName'")
             PermissionDenied(
               s"Permission denied: user declined tool '$toolName'."
             )
           case _ =>
-            safeLog(s"[Permissions] Unexpected decision for tool '$toolName'")
+            ErrorHandler.safeLog(s"[Permissions] Unexpected decision for tool '$toolName'")
             PermissionDenied(s"Permission denied: tool '$toolName'.")
         }
     }
@@ -870,22 +869,6 @@ object AssistantTools {
       s"$k=$rendered"
     }.mkString(", ")
 
-  private def safeLog(message: String): Unit = {
-    try Output.writeln(message)
-    catch {
-      case NonFatal(_) | _: LinkageError => ()
-    }
-  }
-
-  private def firstNonEmpty(parts: List[String]): Option[String] =
-    parts.map(_.trim).find(_.nonEmpty)
-
-  private def exploreFailureMessage(
-      result: IQMcpClient.ExploreResult,
-      fallback: String
-  ): String =
-    firstNonEmpty(List(result.error.getOrElse(""), result.message, result.results))
-      .getOrElse(fallback)
 
   /** Execute an I/Q explore query and return formatted result string.
     * Encapsulates the common pattern: check IQ availability → call explore → format success/timeout/error.
@@ -927,7 +910,7 @@ object AssistantTools {
               if (text.nonEmpty && text != "No results") successMapper(text)
               else effectiveEmpty
             } else if (explore.timedOut) s"$toolLabel timed out."
-            else s"Error: ${exploreFailureMessage(explore, s"$toolLabel failed")}"
+            else s"Error: ${explore.failureMessage(s"$toolLabel failed")}"
           }
         )
     }
@@ -960,7 +943,7 @@ object AssistantTools {
       view: View
   ): ToolExecResult = {
     val toolName = toolId.wireName
-    safeLog(s"[Assistant] Tool call: $toolName(${summarizeToolArgsForLog(args)})")
+    ErrorHandler.safeLog(s"[Assistant] Tool call: $toolName(${summarizeToolArgsForLog(args)})")
     AssistantDockable.setStatus(s"[tool] $toolName...")
     try {
       toolHandlers.get(toolId) match {
@@ -1278,7 +1261,7 @@ object AssistantTools {
             if (explore.success) "[ok] Proof verified"
             else if (explore.timedOut) "[FAIL] Timed out"
             else
-              s"[FAIL] Failed: ${exploreFailureMessage(explore, "proof verification failed")}"
+              s"[FAIL] Failed: ${explore.failureMessage("proof verification failed")}"
           }
         )
     }
@@ -1315,7 +1298,7 @@ object AssistantTools {
   /** Unified counterexample finder supporting nitpick, quickcheck, or both. */
   private def execFindCounterexample(
       args: ResponseParser.ToolArgs,
-      @unused view: View
+      view: View
   ): String = {
     val method = safeStringArg(args, "method", 50).toLowerCase
     val effectiveMethod = if (method.isEmpty || method == "quickcheck") "quickcheck" else method
@@ -1603,7 +1586,7 @@ object AssistantTools {
                 s"$status\n${stepResult.stateText}"
               }
             } else if (explore.timedOut) "Step execution timed out."
-            else s"[FAIL] ${exploreFailureMessage(explore, "step execution failed")}"
+            else s"[FAIL] ${explore.failureMessage("step execution failed")}"
           }
         )
     }
@@ -1652,7 +1635,7 @@ object AssistantTools {
               }
             } else if (explore.timedOut) "Simplifier trace timed out."
             else
-              s"Error: ${exploreFailureMessage(explore, "simplifier trace failed")}"
+              s"Error: ${explore.failureMessage("simplifier trace failed")}"
           }
         )
     }
@@ -1952,21 +1935,20 @@ object AssistantTools {
     val severityStr = safeStringArg(args, "severity", 50).toLowerCase
     val countOnly = boolArg(args, "count_only", default = false)
     
-    val severity = severityStr match {
-      case "warning" => IQMcpClient.DiagnosticSeverity.Warning
-      case "error" => IQMcpClient.DiagnosticSeverity.Error
-      case "all" => 
+    severityStr match {
+      case "all" =>
         // For "all", we need to query both and combine
-        return execGetDiagnosticsAll(args, view, countOnly)
-      case _ => 
-        return s"Error: severity must be 'error', 'warning', or 'all', got '$severityStr'"
-    }
-    
-    if (countOnly) {
-      execGetDiagnosticsCount(args, view, severity)
-    } else {
-      val emptyMsg = if (severity == IQMcpClient.DiagnosticSeverity.Error) "No errors" else "No warnings"
-      execGetDiagnostics(args, view, severity, emptyMsg)
+        execGetDiagnosticsAll(args, view, countOnly)
+      case "warning" =>
+        val severity = IQMcpClient.DiagnosticSeverity.Warning
+        if (countOnly) execGetDiagnosticsCount(args, view, severity)
+        else execGetDiagnostics(args, view, severity, "No warnings")
+      case "error" =>
+        val severity = IQMcpClient.DiagnosticSeverity.Error
+        if (countOnly) execGetDiagnosticsCount(args, view, severity)
+        else execGetDiagnostics(args, view, severity, "No errors")
+      case _ =>
+        s"Error: severity must be 'error', 'warning', or 'all', got '$severityStr'"
     }
   }
 
@@ -2564,15 +2546,19 @@ object AssistantTools {
     val optionsStr = safeStringArg(args, "options", 1000)
     val context = safeStringArg(args, "context", 500)
     
-    if (question.isEmpty) return "Error: question required"
-    
-    val options = optionsStr.split(",").map(_.trim).filter(_.nonEmpty).toList
-    if (options.length < 2) return "Error: at least 2 options required"
-    
-    promptUserWithChoices(question, options, context, view) match {
-      case Some(choice) => choice
-      case None if AssistantDockable.isCancelled => "User cancelled the operation."
-      case None => "User did not respond within the time limit."
+    if (question.isEmpty) {
+      "Error: question required"
+    } else {
+      val options = optionsStr.split(",").map(_.trim).filter(_.nonEmpty).toList
+      if (options.length < 2) {
+        "Error: at least 2 options required"
+      } else {
+        promptUserWithChoices(question, options, context, view) match {
+          case Some(choice) => choice
+          case None if AssistantDockable.isCancelled => "User cancelled the operation."
+          case None => "User did not respond within the time limit."
+        }
+      }
     }
   }
 

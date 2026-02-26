@@ -101,6 +101,16 @@ object ErrorHandler {
       case NonFatal(_) | _: LinkageError => System.err.println(msg)
     }
 
+  /** Safe wrapper for Output.writeln — silently ignores errors.
+    * Use for logging that should never throw exceptions even if Isabelle runtime is unavailable.
+    */
+  def safeLog(message: String): Unit = {
+    try Output.writeln(message)
+    catch {
+      case NonFatal(_) | _: LinkageError => ()
+    }
+  }
+
   /** Safe wrapper for Output.error_message — no-op if Isabelle runtime isn't
     * available.
     */

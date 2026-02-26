@@ -13,13 +13,17 @@ object HtmlUtil {
 
   /** Escape HTML special characters for safe embedding in HTML documents.
     *
-    * Converts & → &amp;, < → &lt;, > → &gt; to prevent HTML injection and ensure
-    * special characters display correctly. Does NOT escape quotes (use additional
-    * encoding for attribute values if needed).
+    * Converts & → &amp;, < → &lt;, > → &gt;, " → &quot;, ' → &#39; to prevent 
+    * HTML injection and ensure special characters display correctly both in text 
+    * content and attribute values.
     *
     * @param s The string to escape (may contain any characters)
     * @return HTML-safe string with special characters converted to entities
     */
   def escapeHtml(s: String): String =
-    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    s.replace("&", "&amp;")
+      .replace("<", "&lt;")
+      .replace(">", "&gt;")
+      .replace("\"", "&quot;")
+      .replace("'", "&#39;")
 }

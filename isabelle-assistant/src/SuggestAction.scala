@@ -6,7 +6,7 @@ package isabelle.assistant
 import isabelle._
 import org.gjt.sp.jedit.View
 import org.gjt.sp.jedit.buffer.JEditBuffer
-import java.util.concurrent.{CountDownLatch, TimeUnit}
+import java.util.concurrent.CountDownLatch
 import scala.annotation.unused
 
 /** Proof suggestion pipeline combining LLM suggestions with optional
@@ -50,33 +50,41 @@ object SuggestAction {
       buffer: JEditBuffer,
       offset: Int
   ): Unit = {
-    val _ = ErrorHandler
-      .withErrorHandling("suggest operation") {
-        val commandText = CommandExtractor.getCommandAtOffset(buffer, offset)
-        val goalState = GoalExtractor.getGoalState(buffer, offset)
+    // Fork immediately to avoid blocking EDT on I/Q MCP calls
+    val _ = Isabelle_Thread.fork(name = "assistant-suggest") {
+      val _ = ErrorHandler
+        .withErrorHandling("suggest operation") {
+          // These I/Q MCP calls are now on background thread
+          val commandText = CommandExtractor.getCommandAtOffset(buffer, offset)
+          val goalState = GoalExtractor.getGoalState(buffer, offset)
 
-        (commandText, goalState) match {
-          case (None, _) =>
-            GUI.warning_dialog(
-              view,
-              "Isabelle Assistant",
-              "No command at cursor position"
-            )
-          case (_, None) =>
-            GUI.warning_dialog(
-              view,
-              "Isabelle Assistant",
-              "No goal state available"
-            )
-          case (Some(cmd), Some(goal)) =>
-            val canVerify =
-              IQAvailable.isAvailable && AssistantOptions.getVerifySuggestions
-            val useSledgehammer =
-              AssistantOptions.getUseSledgehammer && IQAvailable.isAvailable
+          (commandText, goalState) match {
+            case (None, _) =>
+              GUI_Thread.later {
+                GUI.warning_dialog(
+                  view,
+                  "Isabelle Assistant",
+                  "No command at cursor position"
+                )
+              }
+            case (_, None) =>
+              GUI_Thread.later {
+                GUI.warning_dialog(
+                  view,
+                  "Isabelle Assistant",
+                  "No goal state available"
+                )
+              }
+            case (Some(cmd), Some(goal)) =>
+              val canVerify =
+                IQAvailable.isAvailable && AssistantOptions.getVerifySuggestions
+              val useSledgehammer =
+                AssistantOptions.getUseSledgehammer && IQAvailable.isAvailable
 
-            AssistantDockable.setStatus("Generating suggestions...")
+              GUI_Thread.later {
+                AssistantDockable.setStatus("Generating suggestions...")
+              }
 
-            val _ = Isabelle_Thread.fork(name = "assistant-suggest") {
               val _ = ErrorHandler
                 .withErrorHandling("suggestion generation") {
                   Output.writeln(
@@ -117,12 +125,14 @@ object SuggestAction {
                     GUI.error_dialog(view, "Suggest Error", ex.getMessage)
                   }
                 }
-            }
+          }
         }
-      }
-      .recover { case ex =>
-        GUI.error_dialog(view, "Suggest Error", ex.getMessage)
-      }
+        .recover { case ex =>
+          GUI_Thread.later {
+            GUI.error_dialog(view, "Suggest Error", ex.getMessage)
+          }
+        }
+    }
   }
 
   private def collectCandidates(
@@ -210,31 +220,17 @@ object SuggestAction {
   ): String = {
     if (!useIQ) ""
     else {
-      // Run context facts and relevant theorems in parallel
-      val factsLatch = new java.util.concurrent.CountDownLatch(1)
-      val theoremsLatch = new java.util.concurrent.CountDownLatch(1)
-      @volatile var contextFacts = ""
-      @volatile var relevantTheorems = ""
-
-      val _ = Isabelle_Thread.fork(name = "suggest-context") {
-        contextFacts = getContextFacts(view)
-        factsLatch.countDown()
-      }
-      val _ = Isabelle_Thread.fork(name = "suggest-theorems") {
-        relevantTheorems = findRelevantTheorems(view, goalState)
-        theoremsLatch.countDown()
-      }
-
-      factsLatch.await(
-        AssistantConstants.CONTEXT_FETCH_TIMEOUT + AssistantConstants.TIMEOUT_BUFFER_MS,
-        java.util.concurrent.TimeUnit.MILLISECONDS
+      val offset = view.getTextArea.getCaretPosition
+      
+      // Use shared ProofContextSupport to collect facts and theorems in parallel
+      val bundle = ProofContextSupport.collect(
+        view,
+        offset,
+        Some(goalState),
+        includeDefinitions = false
       )
-      theoremsLatch.await(
-        AssistantConstants.CONTEXT_FETCH_TIMEOUT + AssistantConstants.TIMEOUT_BUFFER_MS,
-        java.util.concurrent.TimeUnit.MILLISECONDS
-      )
-
-      List(contextFacts, relevantTheorems).filter(_.nonEmpty).mkString("\n\n")
+      
+      List(bundle.localFacts, bundle.relevantTheorems).filter(_.nonEmpty).mkString("\n\n")
     }
   }
 
@@ -312,114 +308,16 @@ object SuggestAction {
       )
     }
 
-    // Async timeout guard — uses a scheduled executor to trip the latch instead of blocking a thread
-    val p = scala.concurrent.Promise[Unit]()
-    val cancelTimeout = TimeoutGuard.scheduleTimeout(
-      p,
+    // Async timeout guard — ensures latch completes even if sledgehammer hangs
+    val _ = TimeoutGuard.scheduleAction(
       AssistantOptions.getSledgehammerTimeout + AssistantConstants.SLEDGEHAMMER_GUARD_TIMEOUT
-    )
-
-    import scala.concurrent.ExecutionContext.Implicits.global
-    p.future.onComplete { _ =>
-      cancelTimeout()
-    }
-    p.future.failed.foreach { _ =>
+    ) {
       if (sledgeCompleted.compareAndSet(false, true)) {
         latch.countDown()
       }
     }
   }
 
-  private def getContextFacts(view: View): String = {
-    ErrorHandler
-      .withErrorHandling(
-        "context facts retrieval",
-        Some(AssistantConstants.CONTEXT_FETCH_TIMEOUT)
-      ) {
-        val latch = new CountDownLatch(1)
-        @volatile var contextResult = ""
-
-        GUI_Thread.later {
-          PrintContextAction.runPrintContextAsync(
-            view,
-            AssistantConstants.CONTEXT_FETCH_TIMEOUT,
-            { result =>
-              result match {
-                case Right(output)
-                    if output.trim.nonEmpty && !output
-                      .contains("No local facts") =>
-                  contextResult = "Local facts:\n" + output.trim
-                case _ =>
-              }
-              latch.countDown()
-            }
-          )
-        }
-
-        latch.await(
-          AssistantConstants.CONTEXT_FETCH_TIMEOUT + AssistantConstants.TIMEOUT_BUFFER_MS,
-          TimeUnit.MILLISECONDS
-        )
-        contextResult
-      }
-      .getOrElse("")
-  }
-
-  private def findRelevantTheorems(
-      view: View,
-      goalState: String
-  ): String = {
-    // Use PIDE markup from GoalExtractor to get actual constants from the goal,
-    // rather than regex extraction from rendered text which can give false positives.
-    val buffer = view.getBuffer
-    val offset = view.getTextArea.getCaretPosition
-
-    val analysisOpt = GoalExtractor.analyzeGoal(buffer, offset)
-    val constants =
-      ProofContextSupport.extractNamesForFindTheorems(goalState, analysisOpt)
-    Output.writeln(
-      s"[Assistant] Constants for find_theorems context: ${constants.mkString(", ")}"
-    )
-
-    // Build separate name: criteria for each constant — find_theorems expects
-    // individual search criteria, not a single space-joined pattern.
-    val criteria = constants.map(c => s"""name: "$c"""").toList
-    Output.writeln(
-      s"[Assistant] find_theorems criteria: ${criteria.mkString(", ")}"
-    )
-
-    if (criteria.isEmpty) ""
-    else {
-      val limit = AssistantOptions.getFindTheoremsLimit
-      val timeout = AssistantOptions.getFindTheoremsTimeout
-      val pattern = criteria.mkString(" ")
-      val latch = new CountDownLatch(1)
-      @volatile var theorems: List[String] = Nil
-
-      GUI_Thread.later {
-        IQIntegration.runFindTheoremsAsync(
-          view,
-          pattern,
-          limit,
-          timeout,
-          {
-            case Right(results) =>
-              Output.writeln(
-                s"[Assistant] find_theorems found ${results.length} results"
-              )
-              theorems = results.take(limit)
-              latch.countDown()
-            case Left(err) =>
-              Output.writeln(s"[Assistant] find_theorems error: $err")
-              latch.countDown()
-          }
-        )
-      }
-
-      latch.await(timeout + 1000, TimeUnit.MILLISECONDS)
-      theorems.mkString("\n")
-    }
-  }
 
   /** Parse suggestions from structured tool_choice response (ToolArgs). */
   private[assistant] def parseStructuredSuggestions(args: ResponseParser.ToolArgs): List[String] = {

@@ -47,4 +47,28 @@ object TimeoutGuard {
       val _ = task.cancel(false)
     }
   }
+
+  /** Schedule a simple action to run after the specified duration.
+    * Returns a function to cancel the scheduled task.
+    * Use this instead of Promise/Future when you just need a deferred action.
+    */
+  def scheduleAction(timeoutMs: Long)(action: => Unit): () => Unit = {
+    val task = scheduler.schedule(
+      new Runnable {
+        def run(): Unit = {
+          try action
+          catch { 
+            case _: Exception => () // Timeout guards should not crash
+          }
+        }
+      },
+      timeoutMs,
+      TimeUnit.MILLISECONDS
+    )
+
+    // Return cancellation thunk
+    () => {
+      val _ = task.cancel(false)
+    }
+  }
 }

@@ -14,15 +14,16 @@ private[assistant] object IQMcpDecoder {
   import IQMcpProtocol._
 
   // --- Type coercion helpers ---
+  // These are package-private so they can be reused by IQMcpClient
 
-  private def asObject(value: Any): Option[Map[String, Any]] = value match {
+  private[assistant] def asObject(value: Any): Option[Map[String, Any]] = value match {
     case JSON.Object(obj) => Some(obj)
     case obj: Map[?, ?] =>
       Some(obj.collect { case (k: String, v) => k -> v }.toMap)
     case _ => None
   }
 
-  private def asList(value: Any): Option[List[Any]] = value match {
+  private[assistant] def asList(value: Any): Option[List[Any]] = value match {
     case xs: List[?] => Some(xs.asInstanceOf[List[Any]])
     case _ => None
   }

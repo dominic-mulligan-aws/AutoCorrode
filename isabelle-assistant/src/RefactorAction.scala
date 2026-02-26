@@ -30,16 +30,19 @@ object RefactorAction {
     ChatAction.addMessage(ChatAction.User, ":refactor selection")
     AssistantDockable.showConversation(ChatAction.getHistory)
 
-    val buffer = view.getBuffer
-    val offset = view.getTextArea.getCaretPosition
-    val goalState = GoalExtractor.getGoalState(buffer, offset)
-    val hasCommand =
-      CommandExtractor.getCommandAtOffset(buffer, offset).isDefined
-    val canVerify = IQAvailable.isAvailable && hasCommand
-
     AssistantDockable.setBadge(VerificationBadge.Verifying)
 
+    // Fork immediately to avoid blocking EDT on I/Q MCP calls
     val _ = Isabelle_Thread.fork(name = "assistant-refactor") {
+      // Capture buffer and offset on background thread
+      val buffer = view.getBuffer
+      val offset = view.getTextArea.getCaretPosition
+      
+      // These I/Q MCP calls are now on background thread (not EDT)
+      val goalState = GoalExtractor.getGoalState(buffer, offset)
+      val hasCommand =
+        CommandExtractor.getCommandAtOffset(buffer, offset).isDefined
+      val canVerify = IQAvailable.isAvailable && hasCommand
       try {
         val bundle =
           ProofContextSupport.collect(

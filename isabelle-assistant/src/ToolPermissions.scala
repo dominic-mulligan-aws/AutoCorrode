@@ -6,7 +6,6 @@ package isabelle.assistant
 import isabelle._
 import org.gjt.sp.jedit.{jEdit, View}
 import java.util.Locale
-import scala.util.control.NonFatal
 
 /**
  * Capability-based permission system for LLM tool use.
@@ -237,12 +236,6 @@ object ToolPermissions {
       id.wireName -> description
     }
 
-  private def safeLog(message: String): Unit = {
-    try Output.writeln(message)
-    catch {
-      case NonFatal(_) | _: LinkageError => ()
-    }
-  }
 
   // --- Tool Name Formatting ---
 
@@ -448,25 +441,25 @@ object ToolPermissions {
         choice match {
           case "Allow (for this session)" =>
             setSessionAllowed(toolId)
-            safeLog(s"[Permissions] User allowed '$toolName' for session")
+            ErrorHandler.safeLog(s"[Permissions] User allowed '$toolName' for session")
             Allowed
           case "Allow Once" =>
-            safeLog(s"[Permissions] User allowed '$toolName' once")
+            ErrorHandler.safeLog(s"[Permissions] User allowed '$toolName' once")
             Allowed
           case "Deny (for this session)" =>
             setSessionDenied(toolId)
-            safeLog(s"[Permissions] User denied '$toolName' for session")
+            ErrorHandler.safeLog(s"[Permissions] User denied '$toolName' for session")
             Denied
           case "Deny Once" =>
-            safeLog(s"[Permissions] User denied '$toolName' once")
+            ErrorHandler.safeLog(s"[Permissions] User denied '$toolName' once")
             Denied
           case _ =>
-            safeLog(s"[Permissions] Unexpected choice for '$toolName': $choice")
+            ErrorHandler.safeLog(s"[Permissions] Unexpected choice for '$toolName': $choice")
             Denied
         }
       case None =>
         // Timeout or cancellation
-        safeLog(s"[Permissions] User did not respond, denying '$toolName'")
+        ErrorHandler.safeLog(s"[Permissions] User did not respond, denying '$toolName'")
         Denied
     }
   }

@@ -627,18 +627,22 @@ object ChatAction {
   private def runExplainError(view: View): Unit = {
     val buffer = view.getBuffer
     val offset = view.getTextArea.getCaretPosition
+    
+    // Extract error first (this is local to PIDE, not I/Q MCP)
     ExplainErrorAction.extractErrorAtOffset(buffer, offset) match {
       case None =>
         addResponse("No error at cursor position.")
       case Some(error) =>
-        val context =
-          CommandExtractor.getCommandAtOffset(buffer, offset).getOrElse("")
-        val goalState = GoalExtractor.getGoalState(buffer, offset)
-
+        // Fork immediately to avoid blocking EDT on I/Q MCP calls
         ActionHelper.runAndRespond(
           "chat-explain-error",
           "Explaining error..."
         ) {
+          // These I/Q MCP calls are now on background thread
+          val context =
+            CommandExtractor.getCommandAtOffset(buffer, offset).getOrElse("")
+          val goalState = GoalExtractor.getGoalState(buffer, offset)
+
           val subs = Map(
             "error" -> error,
             "context" -> context
@@ -665,132 +669,135 @@ object ChatAction {
     else {
       val buffer = view.getBuffer
       val offset = view.getTextArea.getCaretPosition
+      
+      AssistantDockable.setStatus(AssistantConstants.STATUS_VERIFYING)
+      
+      // Fork immediately to avoid blocking EDT on I/Q MCP call
+      val _ = Isabelle_Thread.fork(name = "chat-verify-check") {
+        // This I/Q MCP call is now on background thread
+        CommandExtractor.getCommandAtOffset(buffer, offset) match {
+          case None => 
+            GUI_Thread.later {
+              addResponse("No Isabelle command at cursor position.")
+            }
+          case Some(_) =>
+            val timeout = AssistantOptions.getVerificationTimeout
+            val latch = new CountDownLatch(1)
+            @volatile var result: String = ""
+
+            GUI_Thread.later {
+              IQIntegration.verifyProofAsync(
+                view,
+                proof,
+                timeout,
+                {
+                  case IQIntegration.ProofSuccess(timeMs, _) =>
+                    result = s"[ok] Proof verified successfully (${timeMs}ms)"
+                    latch.countDown()
+                  case IQIntegration.ProofFailure(error) =>
+                    result = s"[FAIL] Verification failed: $error"
+                    latch.countDown()
+                  case IQIntegration.ProofTimeout =>
+                    result = "[FAIL] Verification timed out"
+                    latch.countDown()
+                  case _ =>
+                    result = "[FAIL] Verification unavailable"
+                    latch.countDown()
+                }
+              )
+            }
+
+            val _ = Isabelle_Thread.fork(name = "chat-verify-wait") {
+              latch.await(timeout + 2000, TimeUnit.MILLISECONDS)
+              val finalResult =
+                if (result.isEmpty) "[FAIL] Verification timed out (no response)"
+                else result
+              GUI_Thread.later {
+                addResponse(finalResult)
+                AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+              }
+              // On failure, diagnose using LLM
+              if (finalResult.startsWith("[FAIL]")) {
+                val error = finalResult
+                  .stripPrefix("[FAIL] Verification failed: ")
+                  .stripPrefix("[FAIL] ")
+                val goalState = GoalExtractor.getGoalState(buffer, offset)
+                val context = CommandExtractor.getCommandAtOffset(buffer, offset)
+                try {
+                  val subs = Map("proof" -> proof, "error" -> error) ++
+                    goalState
+                      .map(g => Map("goal_state" -> g))
+                      .getOrElse(Map.empty) ++
+                    context.map(c => Map("context" -> c)).getOrElse(Map.empty)
+                  val diagPrompt =
+                    PromptLoader.load("diagnose_verification.md", subs)
+                  // Use invokeNoCache (stateless) to avoid polluting chat history
+                  val diagnosis = BedrockClient.invokeNoCache(diagPrompt)
+                  GUI_Thread.later { addResponse(diagnosis) }
+                } catch {
+                  case ex: Exception =>
+                    Output.writeln(
+                      s"[Assistant] Post-verification diagnosis failed: ${ex.getMessage}"
+                    )
+                }
+              }
+            }
+        }
+      }
+    }
+  }
+
+  private def runSledgehammer(view: View): Unit = {
+    val buffer = view.getBuffer
+    val offset = view.getTextArea.getCaretPosition
+    
+    AssistantDockable.setStatus("Running sledgehammer...")
+    
+    // Fork immediately to avoid blocking EDT on I/Q MCP call
+    val _ = Isabelle_Thread.fork(name = "chat-sledgehammer-check") {
+      // This I/Q MCP call is now on background thread
       CommandExtractor.getCommandAtOffset(buffer, offset) match {
-        case None => addResponse("No Isabelle command at cursor position.")
+        case None => 
+          GUI_Thread.later {
+            addResponse("No Isabelle command at cursor position.")
+          }
         case Some(_) =>
-          AssistantDockable.setStatus(AssistantConstants.STATUS_VERIFYING)
-          val timeout = AssistantOptions.getVerificationTimeout
-          val latch = new CountDownLatch(1)
-          @volatile var result: String = ""
+          val timeout = AssistantOptions.getSledgehammerTimeout
 
           GUI_Thread.later {
-            IQIntegration.verifyProofAsync(
+            IQIntegration.runSledgehammerAsync(
               view,
-              proof,
               timeout,
               {
-                case IQIntegration.ProofSuccess(timeMs, _) =>
-                  result = s"[ok] Proof verified successfully (${timeMs}ms)"
-                  latch.countDown()
-                case IQIntegration.ProofFailure(error) =>
-                  result = s"[FAIL] Verification failed: $error"
-                  latch.countDown()
-                case IQIntegration.ProofTimeout =>
-                  result = "[FAIL] Verification timed out"
-                  latch.countDown()
-                case _ =>
-                  result = "[FAIL] Verification unavailable"
-                  latch.countDown()
+                case Right(results) if results.nonEmpty =>
+                  GUI_Thread.later {
+                    val lines = results
+                      .map(r =>
+                        s"[sledgehammer] `${r.proofMethod}` (${r.timeMs}ms)"
+                      )
+                      .mkString("\n\n")
+                    addResponse(
+                      s"**Sledgehammer found ${results.length} proofs:**\n\n$lines"
+                    )
+                    AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+                  }
+                case Right(_) =>
+                  GUI_Thread.later {
+                    addResponse("Sledgehammer found no proofs.")
+                    AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+                  }
+                case Left(error) =>
+                  GUI_Thread.later {
+                    addResponse(s"Sledgehammer error: $error")
+                    AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+                  }
               }
             )
-          }
-
-          val _ = Isabelle_Thread.fork(name = "chat-verify") {
-            latch.await(timeout + 2000, TimeUnit.MILLISECONDS)
-            val finalResult =
-              if (result.isEmpty) "[FAIL] Verification timed out (no response)"
-              else result
-            GUI_Thread.later {
-              addResponse(finalResult)
-              AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
-            }
-            // On failure, diagnose using LLM
-            if (finalResult.startsWith("[FAIL]")) {
-              val error = finalResult
-                .stripPrefix("[FAIL] Verification failed: ")
-                .stripPrefix("[FAIL] ")
-              val goalState = GoalExtractor.getGoalState(buffer, offset)
-              val context = CommandExtractor.getCommandAtOffset(buffer, offset)
-              try {
-                val subs = Map("proof" -> proof, "error" -> error) ++
-                  goalState
-                    .map(g => Map("goal_state" -> g))
-                    .getOrElse(Map.empty) ++
-                  context.map(c => Map("context" -> c)).getOrElse(Map.empty)
-                val diagPrompt =
-                  PromptLoader.load("diagnose_verification.md", subs)
-                // Use invokeNoCache (stateless) to avoid polluting chat history
-                val diagnosis = BedrockClient.invokeNoCache(diagPrompt)
-                GUI_Thread.later { addResponse(diagnosis) }
-              } catch {
-                case ex: Exception =>
-                  Output.writeln(
-                    s"[Assistant] Post-verification diagnosis failed: ${ex.getMessage}"
-                  )
-              }
-            }
           }
       }
     }
   }
 
-  /** Run sledgehammer at cursor position and display results in chat.
-    * 
-    * Invokes Sledgehammer (external ATP provers) via I/Q at the current cursor position.
-    * Displays found proof methods with timing information. Timeout configured via settings.
-    * 
-    * @param view The current jEdit view
-    */
-  private def runSledgehammer(view: View): Unit = {
-    val buffer = view.getBuffer
-    val offset = view.getTextArea.getCaretPosition
-    CommandExtractor.getCommandAtOffset(buffer, offset) match {
-      case None => addResponse("No Isabelle command at cursor position.")
-      case Some(_) =>
-        AssistantDockable.setStatus("Running sledgehammer...")
-        val timeout = AssistantOptions.getSledgehammerTimeout
-
-        GUI_Thread.later {
-          IQIntegration.runSledgehammerAsync(
-            view,
-            timeout,
-            {
-              case Right(results) if results.nonEmpty =>
-                GUI_Thread.later {
-                  val lines = results
-                    .map(r =>
-                      s"[sledgehammer] `${r.proofMethod}` (${r.timeMs}ms)"
-                    )
-                    .mkString("\n\n")
-                  addResponse(
-                    s"**Sledgehammer found ${results.length} proofs:**\n\n$lines"
-                  )
-                  AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
-                }
-              case Right(_) =>
-                GUI_Thread.later {
-                  addResponse("Sledgehammer found no proofs.")
-                  AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
-                }
-              case Left(error) =>
-                GUI_Thread.later {
-                  addResponse(s"Sledgehammer error: $error")
-                  AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
-                }
-            }
-          )
-        }
-    }
-  }
-
-  /** Search for theorems matching pattern via find_theorems.
-    * 
-    * Runs I/Q find_theorems with the provided search pattern at the current cursor position.
-    * Returns matching theorems from the Isabelle library. Limit and timeout configured via settings.
-    * 
-    * @param view The current jEdit view
-    * @param pattern Search pattern (will be quoted if not already)
-    */
   private def runFind(view: View, pattern: String): Unit = {
     if (pattern.trim.isEmpty)
       addResponse(
@@ -799,43 +806,52 @@ object ChatAction {
     else {
       val buffer = view.getBuffer
       val offset = view.getTextArea.getCaretPosition
-      CommandExtractor.getCommandAtOffset(buffer, offset) match {
-        case None => addResponse("No Isabelle command at cursor position.")
-        case Some(_) =>
-          AssistantDockable.setStatus("Searching theorems...")
-          val limit = AssistantOptions.getFindTheoremsLimit
-          val timeout = AssistantOptions.getFindTheoremsTimeout
-          val quotedPattern =
-            if (pattern.startsWith("\"")) pattern else s"\"$pattern\""
+      
+      AssistantDockable.setStatus("Searching theorems...")
+      
+      // Fork immediately to avoid blocking EDT on I/Q MCP call
+      val _ = Isabelle_Thread.fork(name = "chat-find-check") {
+        // This I/Q MCP call is now on background thread
+        CommandExtractor.getCommandAtOffset(buffer, offset) match {
+          case None => 
+            GUI_Thread.later {
+              addResponse("No Isabelle command at cursor position.")
+            }
+          case Some(_) =>
+            val limit = AssistantOptions.getFindTheoremsLimit
+            val timeout = AssistantOptions.getFindTheoremsTimeout
+            val quotedPattern =
+              if (pattern.startsWith("\"")) pattern else s"\"$pattern\""
 
-          GUI_Thread.later {
-            IQIntegration.runFindTheoremsAsync(
-              view,
-              quotedPattern,
-              limit,
-              timeout,
-              {
-                case Right(results) if results.nonEmpty =>
-                  GUI_Thread.later {
-                    val lines = results.map(r => s"* $r").mkString("\n\n")
-                    addResponse(
-                      s"**Found ${results.length} theorems:**\n\n$lines"
-                    )
-                    AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
-                  }
-                case Right(_) =>
-                  GUI_Thread.later {
-                    addResponse(s"No theorems found matching: $pattern")
-                    AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
-                  }
-                case Left(error) =>
-                  GUI_Thread.later {
-                    addResponse(s"Find theorems error: $error")
-                    AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
-                  }
-              }
-            )
-          }
+            GUI_Thread.later {
+              IQIntegration.runFindTheoremsAsync(
+                view,
+                quotedPattern,
+                limit,
+                timeout,
+                {
+                  case Right(results) if results.nonEmpty =>
+                    GUI_Thread.later {
+                      val lines = results.map(r => s"* $r").mkString("\n\n")
+                      addResponse(
+                        s"**Found ${results.length} theorems:**\n\n$lines"
+                      )
+                      AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+                    }
+                  case Right(_) =>
+                    GUI_Thread.later {
+                      addResponse(s"No theorems found matching: $pattern")
+                      AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+                    }
+                  case Left(error) =>
+                    GUI_Thread.later {
+                      addResponse(s"Find theorems error: $error")
+                      AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+                    }
+                }
+              )
+            }
+        }
       }
     }
   }
