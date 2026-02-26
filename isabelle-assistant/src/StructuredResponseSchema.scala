@@ -82,4 +82,44 @@ object StructuredResponseSchema {
       "required": ["selected_approach", "reasoning", "plan"]
     }"""
   )
+
+  /** Schema for context summarization: compress conversation history into structured summary. */
+  val ContextSummary: StructuredResponseSchema = StructuredResponseSchema(
+    name = "summarize_context",
+    description = "Summarize the conversation history into a structured summary that preserves critical information.",
+    jsonSchema = """{
+      "type": "object",
+      "properties": {
+        "user_goal": {
+          "type": "string",
+          "description": "The user's original request or task, quoted directly or faithfully paraphrased"
+        },
+        "accomplishments": {
+          "type": "string",
+          "description": "What has been completed so far. Be specific: list file changes, theorems proved, lemmas extracted, etc."
+        },
+        "pending_work": {
+          "type": "string",
+          "description": "What still needs to be done. Reference any task list items. Be explicit about the next steps."
+        },
+        "key_context": {
+          "type": "string",
+          "description": "Critical names, files, theorems, definitions that the continuing agent needs to reference. Include exact identifiers, file paths, and proof method names."
+        },
+        "approach_history": {
+          "type": "string",
+          "description": "What approaches were tried, in chronological order. Include more detail for recent attempts. Note what worked and what didn't."
+        },
+        "decisions_and_constraints": {
+          "type": "string",
+          "description": "Key decisions made. User preferences stated. Things to avoid. Required approaches or styles."
+        },
+        "current_state": {
+          "type": "string",
+          "description": "The precise current state: what was the last action, what was its result, what is the immediate situation right now"
+        }
+      },
+      "required": ["user_goal", "accomplishments", "pending_work", "key_context", "approach_history", "decisions_and_constraints", "current_state"]
+    }"""
+  )
 }

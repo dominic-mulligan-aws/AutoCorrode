@@ -83,6 +83,13 @@ object AssistantConstants {
   val LLM_CACHE_SIZE = 100
   val LLM_CACHE_EXPIRY_HOURS = 1
 
+  // Context summarization
+  val DEFAULT_SUMMARIZATION_THRESHOLD = 0.75  // Trigger at 75% of budget
+  val MIN_SUMMARIZATION_THRESHOLD = 0.5
+  val MAX_SUMMARIZATION_THRESHOLD = 0.95
+  val SUMMARIZATION_TARGET_RATIO = 0.25  // After summarization, aim for 25% usage
+  val MIN_MESSAGES_FOR_SUMMARIZATION = 5  // Don't summarize if fewer messages
+
   /** Heuristic delay for PIDE to process buffer edits (ms). */
   val PIDE_PROCESSING_DELAY = 3000L
   

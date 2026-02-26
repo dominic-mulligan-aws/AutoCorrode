@@ -42,6 +42,10 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
   private var maxToolIterationsField: Option[JTextField] = None
   private var planningModelCombo: Option[JComboBox[String]] = None
   private var planningTemperatureField: Option[JTextField] = None
+  private var summarizationModelCombo: Option[JComboBox[String]] = None
+  private var summarizationTemperatureField: Option[JTextField] = None
+  private var autoSummarizeCheckbox: Option[JCheckBox] = None
+  private var summarizationThresholdField: Option[JTextField] = None
 
   private def requireUi[A](opt: Option[A], fieldName: String): A =
     opt.getOrElse(
@@ -244,6 +248,60 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     planningTemperatureField = Some(planningTemperature)
     addComponent("Planning Temperature:", planningTemperature)
 
+    addSeparator("Context Summarization")
+
+    val autoSummarize = new JCheckBox(
+      "Auto-Summarize Context",
+      AssistantOptions.getAutoSummarize
+    )
+    autoSummarize.setToolTipText(
+      "<html>Automatically summarize conversation when context budget is reached.<br/>" +
+      "When enabled, instead of truncating old messages, the assistant will<br/>" +
+      "use a dedicated LLM call to compress the conversation history into a<br/>" +
+      "structured summary that preserves task progress and key information.</html>"
+    )
+    autoSummarizeCheckbox = Some(autoSummarize)
+    addComponent("", autoSummarize)
+
+    val summarizationThreshold = new JTextField(
+      AssistantOptions.getSummarizationThreshold.toString, 10
+    )
+    summarizationThreshold.setToolTipText(
+      s"Context budget percentage (${AssistantConstants.MIN_SUMMARIZATION_THRESHOLD}-${AssistantConstants.MAX_SUMMARIZATION_THRESHOLD}) that triggers summarization. Default: ${AssistantConstants.DEFAULT_SUMMARIZATION_THRESHOLD}"
+    )
+    summarizationThresholdField = Some(summarizationThreshold)
+    addComponent("Summarization Threshold:", summarizationThreshold)
+
+    val summarizationModel = new JComboBox[String]()
+    val summarizationModelId = AssistantOptions.getSummarizationBaseModelId
+    summarizationModel.addItem("(use main model)")
+    models.foreach(summarizationModel.addItem)
+    if (summarizationModelId.nonEmpty && !models.contains(summarizationModelId)) {
+      summarizationModel.addItem(summarizationModelId)
+    }
+    if (summarizationModelId.nonEmpty) {
+      summarizationModel.setSelectedItem(summarizationModelId)
+    } else {
+      summarizationModel.setSelectedIndex(0)
+    }
+    summarizationModel.setToolTipText(
+      "<html>Model for context summarization (leave as 'use main model' to use the main model).<br/>" +
+      "Consider using a faster/cheaper model like Haiku for summarization.</html>"
+    )
+    summarizationModelCombo = Some(summarizationModel)
+    addComponent("Summarization Model:", summarizationModel)
+
+    val summarizationTemp = AssistantOptions.getSummarizationTemperature match {
+      case Some(t) => t.toString
+      case None    => ""
+    }
+    val summarizationTemperature = new JTextField(summarizationTemp, 10)
+    summarizationTemperature.setToolTipText(
+      "Temperature for summarization agent (leave empty to use main temperature)"
+    )
+    summarizationTemperatureField = Some(summarizationTemperature)
+    addComponent("Summarization Temperature:", summarizationTemperature)
+
   }
 
   private def populateModelCombo(models: Array[String], current: String): Unit = {
@@ -265,6 +323,7 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     val regionCombo = requireUi(this.regionCombo, "regionCombo")
     val modelCombo = requireUi(this.modelCombo, "modelCombo")
     val planningModelCombo = requireUi(this.planningModelCombo, "planningModelCombo")
+    val summarizationModelCombo = requireUi(this.summarizationModelCombo, "summarizationModelCombo")
     val refresh = requireUi(refreshButton, "refreshButton")
     val region =
       Option(regionCombo.getSelectedItem).map(_.toString).getOrElse("us-east-1")
@@ -272,6 +331,8 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       Option(modelCombo.getSelectedItem).map(_.toString).getOrElse("")
     val currentPlanning =
       Option(planningModelCombo.getSelectedItem).map(_.toString).filter(_ != "(use main model)").getOrElse("")
+    val currentSummarization =
+      Option(summarizationModelCombo.getSelectedItem).map(_.toString).filter(_ != "(use main model)").getOrElse("")
     refresh.setEnabled(false)
     refresh.setText("Refreshing...")
 
@@ -296,6 +357,19 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
             planningModelCombo.setSelectedItem(currentPlanning)
           } else {
             planningModelCombo.setSelectedIndex(0)
+          }
+          
+          // Also update summarization model combo
+          summarizationModelCombo.removeAllItems()
+          summarizationModelCombo.addItem("(use main model)")
+          models.foreach(summarizationModelCombo.addItem)
+          if (currentSummarization.nonEmpty && !models.contains(currentSummarization)) {
+            summarizationModelCombo.addItem(currentSummarization)
+          }
+          if (currentSummarization.nonEmpty) {
+            summarizationModelCombo.setSelectedItem(currentSummarization)
+          } else {
+            summarizationModelCombo.setSelectedIndex(0)
           }
           
           if (models.isEmpty) {
@@ -342,7 +416,11 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       traceTimeoutField,
       traceDepthField,
       planningModelCombo,
-      planningTemperatureField
+      planningTemperatureField,
+      summarizationModelCombo,
+      summarizationTemperatureField,
+      autoSummarizeCheckbox,
+      summarizationThresholdField
     ) = (
       requireUi(this.regionCombo, "regionCombo"),
       requireUi(this.modelCombo, "modelCombo"),
@@ -364,7 +442,11 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       requireUi(this.traceTimeoutField, "traceTimeoutField"),
       requireUi(this.traceDepthField, "traceDepthField"),
       requireUi(this.planningModelCombo, "planningModelCombo"),
-      requireUi(this.planningTemperatureField, "planningTemperatureField")
+      requireUi(this.planningTemperatureField, "planningTemperatureField"),
+      requireUi(this.summarizationModelCombo, "summarizationModelCombo"),
+      requireUi(this.summarizationTemperatureField, "summarizationTemperatureField"),
+      requireUi(this.autoSummarizeCheckbox, "autoSummarizeCheckbox"),
+      requireUi(this.summarizationThresholdField, "summarizationThresholdField")
     )
 
     val warnings = ListBuffer.empty[String]
@@ -611,6 +693,48 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       }
     }
 
+    val summarizationThresholdValue = normalizeDouble(
+      summarizationThresholdField.getText,
+      "Summarization Threshold",
+      AssistantConstants.DEFAULT_SUMMARIZATION_THRESHOLD,
+      AssistantConstants.MIN_SUMMARIZATION_THRESHOLD,
+      AssistantConstants.MAX_SUMMARIZATION_THRESHOLD
+    )
+
+    val summarizationModelValue = {
+      val value = Option(summarizationModelCombo.getSelectedItem)
+        .map(_.toString.trim)
+        .getOrElse("")
+      if (value == "(use main model)" || value.isEmpty) ""
+      else if (BedrockModels.isAnthropicModelId(value)) value
+      else {
+        warn("Summarization Model ID was invalid and has been cleared.")
+        ""
+      }
+    }
+
+    val summarizationTemperatureValue = {
+      val raw = summarizationTemperatureField.getText.trim
+      if (raw.isEmpty) ""
+      else {
+        try {
+          val parsed = raw.toDouble
+          val clamped = math.max(
+            AssistantConstants.MIN_TEMPERATURE,
+            math.min(AssistantConstants.MAX_TEMPERATURE, parsed)
+          )
+          if (clamped != parsed) {
+            warn(s"Summarization Temperature was clamped to $clamped (valid range: ${AssistantConstants.MIN_TEMPERATURE}-${AssistantConstants.MAX_TEMPERATURE}).")
+          }
+          clamped.toString
+        } catch {
+          case _: NumberFormatException =>
+            warn("Summarization Temperature was invalid and has been cleared.")
+            ""
+        }
+      }
+    }
+
     jEdit.setProperty("assistant.aws.region", regionValue)
     jEdit.setProperty("assistant.model.id", modelValue)
     jEdit.setBooleanProperty("assistant.use.cris", crisCheckbox.isSelected)
@@ -638,6 +762,10 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     jEdit.setProperty("assistant.trace.depth", traceDepthValue)
     jEdit.setProperty("assistant.planning.model.id", planningModelValue)
     jEdit.setProperty("assistant.planning.temperature", planningTemperatureValue)
+    jEdit.setBooleanProperty("assistant.auto.summarize", autoSummarizeCheckbox.isSelected)
+    jEdit.setProperty("assistant.summarization.threshold", summarizationThresholdValue)
+    jEdit.setProperty("assistant.summarization.model.id", summarizationModelValue)
+    jEdit.setProperty("assistant.summarization.temperature", summarizationTemperatureValue)
 
     regionCombo.setSelectedItem(regionValue)
     modelCombo.setSelectedItem(modelValue)
@@ -661,6 +789,13 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       planningModelCombo.setSelectedItem(planningModelValue)
     }
     planningTemperatureField.setText(planningTemperatureValue)
+    summarizationThresholdField.setText(summarizationThresholdValue)
+    if (summarizationModelValue.isEmpty) {
+      summarizationModelCombo.setSelectedIndex(0) // "(use main model)"
+    } else {
+      summarizationModelCombo.setSelectedItem(summarizationModelValue)
+    }
+    summarizationTemperatureField.setText(summarizationTemperatureValue)
 
     AssistantOptions.invalidateCache()
     AssistantDockable.refreshModelLabel()
@@ -727,7 +862,11 @@ object AssistantOptions {
       verifySuggestions: Boolean,
       useSledgehammer: Boolean,
       planningBaseModelId: String,
-      planningTemperature: Option[Double]
+      planningTemperature: Option[Double],
+      summarizationBaseModelId: String,
+      summarizationTemperature: Option[Double],
+      autoSummarize: Boolean,
+      summarizationThreshold: Double
   )
 
   @volatile private var _cache: Option[SettingsSnapshot] = None
@@ -793,6 +932,8 @@ object AssistantOptions {
     val modelId = prop("assistant.model.id", "")
     val planningModelId = prop("assistant.planning.model.id", "")
     val planningTempStr = prop("assistant.planning.temperature", "")
+    val summarizationModelId = prop("assistant.summarization.model.id", "")
+    val summarizationTempStr = prop("assistant.summarization.temperature", "")
 
     SettingsSnapshot(
       region =
@@ -897,7 +1038,25 @@ object AssistantOptions {
             Some(parsed)
           else None
         } catch { case _: NumberFormatException => None }
-      }
+      },
+      summarizationBaseModelId = if (isValidBaseModelId(summarizationModelId)) summarizationModelId else "",
+      summarizationTemperature = {
+        val trimmed = summarizationTempStr.trim
+        if (trimmed.isEmpty) None
+        else try {
+          val parsed = trimmed.toDouble
+          if (parsed >= AssistantConstants.MIN_TEMPERATURE && parsed <= AssistantConstants.MAX_TEMPERATURE)
+            Some(parsed)
+          else None
+        } catch { case _: NumberFormatException => None }
+      },
+      autoSummarize = boolProp("assistant.auto.summarize", true),
+      summarizationThreshold = doubleProp(
+        "assistant.summarization.threshold",
+        AssistantConstants.DEFAULT_SUMMARIZATION_THRESHOLD,
+        AssistantConstants.MIN_SUMMARIZATION_THRESHOLD,
+        AssistantConstants.MAX_SUMMARIZATION_THRESHOLD
+      )
     )
   }
 
@@ -943,6 +1102,22 @@ object AssistantOptions {
 
   def getEffectivePlanningTemperature: Double = {
     getPlanningTemperature.getOrElse(getTemperature) // Fallback to main temperature if not set
+  }
+
+  def getSummarizationBaseModelId: String = snapshot.summarizationBaseModelId
+  def getSummarizationTemperature: Option[Double] = snapshot.summarizationTemperature
+  def getAutoSummarize: Boolean = snapshot.autoSummarize
+  def getSummarizationThreshold: Double = snapshot.summarizationThreshold
+
+  def getSummarizationModelId: String = {
+    val base = getSummarizationBaseModelId
+    if (base.isEmpty) getModelId // Fallback to main model if summarization model not set
+    else if (getUseCris) BedrockModels.applyCrisPrefix(base, getRegion)
+    else base
+  }
+
+  def getEffectiveSummarizationTemperature: Double = {
+    getSummarizationTemperature.getOrElse(getTemperature) // Fallback to main temperature if not set
   }
 
   // --- Data-driven setting definitions ---
@@ -1239,6 +1414,28 @@ object AssistantOptions {
       AssistantConstants.MIN_TEMPERATURE,
       AssistantConstants.MAX_TEMPERATURE,
       _.planningTemperature
+    ),
+    BoolSetting("auto_summarize", "assistant.auto.summarize", _.autoSummarize),
+    DoubleSetting(
+      "summarization_threshold",
+      "assistant.summarization.threshold",
+      AssistantConstants.MIN_SUMMARIZATION_THRESHOLD,
+      AssistantConstants.MAX_SUMMARIZATION_THRESHOLD,
+      _.summarizationThreshold
+    ),
+    StringSetting(
+      "summarization_model",
+      "assistant.summarization.model.id",
+      isValidBaseModelId,
+      "Invalid summarization model ID. Only Anthropic model IDs are supported (or empty to use main model).",
+      s => if (s.summarizationBaseModelId.isEmpty) "(use main)" else s.summarizationBaseModelId
+    ),
+    OptionalDoubleSetting(
+      "summarization_temperature",
+      "assistant.summarization.temperature",
+      AssistantConstants.MIN_TEMPERATURE,
+      AssistantConstants.MAX_TEMPERATURE,
+      _.summarizationTemperature
     )
   )
 
