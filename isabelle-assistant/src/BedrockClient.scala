@@ -158,6 +158,13 @@ object BedrockClient {
   }
 
   private val currentViewTL = new ThreadLocal[org.gjt.sp.jedit.View]()
+  
+  /** Track active tool loop context size for accurate context bar display.
+    * Volatile for thread-safe read from GUI thread. Updated during tool loops. */
+  @volatile private var activeToolLoopContextChars: Int = 0
+
+  /** Get current tool loop context size (0 if no active loop). */
+  def getActiveToolLoopContextChars: Int = activeToolLoopContextChars
 
   private[assistant] enum BedrockRole(val wireValue: String) {
     case User extends BedrockRole("user")
@@ -603,6 +610,9 @@ object BedrockClient {
       iteration += 1
       if (AssistantDockable.isCancelled) throw new RuntimeException("Operation cancelled")
       pruneToolLoopMessagesInPlace(msgBuf, AssistantConstants.MAX_CHAT_CONTEXT_CHARS)
+      
+      // Update active tool loop context size for context bar
+      activeToolLoopContextChars = msgBuf.map(_.content.length).sum
 
       val hitLimit = maxIter match {
         case Some(limit) => iteration > limit
@@ -743,15 +753,20 @@ object BedrockClient {
       }
     }
 
-    val finalText = textParts.mkString("\n\n")
-    if (finalText.isEmpty) {
-      try { Output.warning("[Assistant] Tool-use loop completed without text response") }
-      catch { case _: Exception | _: LinkageError => () }
-      "I processed the request using tools but could not generate a text summary. Please try again or rephrase your question."
-    } else {
-      try { Output.writeln(s"[Assistant] Tool loop completed in $iteration iterations, response: ${finalText.length} chars") }
-      catch { case _: Exception | _: LinkageError => () }
-      finalText
+    try {
+      val finalText = textParts.mkString("\n\n")
+      if (finalText.isEmpty) {
+        try { Output.warning("[Assistant] Tool-use loop completed without text response") }
+        catch { case _: Exception | _: LinkageError => () }
+        "I processed the request using tools but could not generate a text summary. Please try again or rephrase your question."
+      } else {
+        try { Output.writeln(s"[Assistant] Tool loop completed in $iteration iterations, response: ${finalText.length} chars") }
+        catch { case _: Exception | _: LinkageError => () }
+        finalText
+      }
+    } finally {
+      // Clear tool loop context tracking when loop exits
+      activeToolLoopContextChars = 0
     }
   }
 
