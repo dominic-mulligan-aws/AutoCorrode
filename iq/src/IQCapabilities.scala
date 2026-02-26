@@ -30,6 +30,9 @@ enum IQToolName(val wire: String) {
   case GetProofContext extends IQToolName("get_proof_context")
   case GetDefinitions extends IQToolName("get_definitions")
   case GetDiagnostics extends IQToolName("get_diagnostics")
+  case GetFileStats extends IQToolName("get_file_stats")
+  case GetProcessingStatus extends IQToolName("get_processing_status")
+  case GetSorryPositions extends IQToolName("get_sorry_positions")
   case Explore extends IQToolName("explore")
   case SaveFile extends IQToolName("save_file")
 }

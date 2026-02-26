@@ -169,7 +169,7 @@ class ToolPermissionsTest
   test("all tools should have descriptions for permission prompts") {
     val permissions = ToolPermissions.getAllToolPermissions
     permissions should not be empty
-    permissions.length shouldBe 39 // All 39 tools
+    permissions.length shouldBe 42 // All 42 tools
   }
 
   test("toolDescriptions should cover every defined tool") {
@@ -210,9 +210,9 @@ class ToolPermissionsTest
     ToolPermissions.getConfiguredLevel("edit_theory") shouldBe ToolPermissions.AskAlways
   }
 
-  test("getAllToolPermissions should return all 39 tools") {
+  test("getAllToolPermissions should return all 42 tools") {
     val all = ToolPermissions.getAllToolPermissions
-    all.length shouldBe 39
+    all.length shouldBe 42
     all.map(_._1).toSet shouldBe AssistantTools.tools.map(_.name).toSet
   }
 

@@ -382,6 +382,72 @@ object IQMcpClient {
       command: Option[CommandInfo]
   )
 
+  /** Result from get_file_stats query.
+    * @param path File path
+    * @param lineCount Total line count
+    * @param entityCount Count of named entities (lemmas, definitions, etc.)
+    * @param fullyProcessed Whether all commands are finished processing
+    * @param hasErrors Whether the file has any errors
+    * @param errorCount Total error count
+    * @param warningCount Total warning count
+    */
+  final case class FileStatsResult(
+      path: String,
+      lineCount: Int,
+      entityCount: Int,
+      fullyProcessed: Boolean,
+      hasErrors: Boolean,
+      errorCount: Int,
+      warningCount: Int
+  )
+
+  /** Result from get_processing_status query.
+    * @param path File path
+    * @param fullyProcessed Whether all commands are finished processing
+    * @param unprocessed Count of unprocessed commands
+    * @param running Count of running commands
+    * @param finished Count of finished commands
+    * @param failed Count of failed commands
+    * @param hasErrors Whether there are any failed commands
+    * @param errorCount Count of failed commands (same as failed)
+    * @param consolidated Whether PIDE has consolidated all results
+    */
+  final case class ProcessingStatusResult(
+      path: String,
+      fullyProcessed: Boolean,
+      unprocessed: Int,
+      running: Int,
+      finished: Int,
+      failed: Int,
+      hasErrors: Boolean,
+      errorCount: Int,
+      consolidated: Boolean
+  )
+
+  /** Single sorry/oops position from get_sorry_positions.
+    * @param line Line number where sorry/oops appears (1-based)
+    * @param keyword The keyword (sorry or oops)
+    * @param offset Character offset where it appears
+    * @param inProof Name of enclosing proof (lemma name or description)
+    */
+  final case class SorryPosition(
+      line: Int,
+      keyword: String,
+      offset: Int,
+      inProof: String
+  )
+
+  /** Result from get_sorry_positions query.
+    * @param path File path
+    * @param count Total count of sorry/oops commands
+    * @param positions List of sorry position metadata
+    */
+  final case class SorryPositionsResult(
+      path: String,
+      count: Int,
+      positions: List[SorryPosition]
+  )
+
   private val requestCounter = new AtomicLong(0L)
   private val host = "127.0.0.1"
   private val connectTimeoutMs = 250
@@ -997,6 +1063,54 @@ object IQMcpClient {
     )
   }
 
+  private[assistant] def decodeFileStatsResult(
+      payload: Map[String, Any]
+  ): FileStatsResult =
+    FileStatsResult(
+      path = stringField(payload, "path"),
+      lineCount = intField(payload, "line_count", 0),
+      entityCount = intField(payload, "entity_count", 0),
+      fullyProcessed = boolField(payload, "fully_processed", default = false),
+      hasErrors = boolField(payload, "has_errors", default = false),
+      errorCount = intField(payload, "error_count", 0),
+      warningCount = intField(payload, "warning_count", 0)
+    )
+
+  private[assistant] def decodeProcessingStatusResult(
+      payload: Map[String, Any]
+  ): ProcessingStatusResult =
+    ProcessingStatusResult(
+      path = stringField(payload, "path"),
+      fullyProcessed = boolField(payload, "fully_processed", default = false),
+      unprocessed = intField(payload, "unprocessed", 0),
+      running = intField(payload, "running", 0),
+      finished = intField(payload, "finished", 0),
+      failed = intField(payload, "failed", 0),
+      hasErrors = boolField(payload, "has_errors", default = false),
+      errorCount = intField(payload, "error_count", 0),
+      consolidated = boolField(payload, "consolidated", default = false)
+    )
+
+  private[assistant] def decodeSorryPositionsResult(
+      payload: Map[String, Any]
+  ): SorryPositionsResult = {
+    val positions = listField(payload, "positions").flatMap { raw =>
+      asObject(raw).map { pos =>
+        SorryPosition(
+          line = intField(pos, "line", 0),
+          keyword = stringField(pos, "keyword"),
+          offset = intField(pos, "offset", 0),
+          inProof = stringField(pos, "in_proof")
+        )
+      }
+    }
+    SorryPositionsResult(
+      path = stringField(payload, "path"),
+      count = intField(payload, "count", positions.length),
+      positions = positions
+    )
+  }
+
   private def decodeListedFile(payload: Map[String, Any]): ListedFile =
     ListedFile(
       path = stringField(payload, "path"),
@@ -1279,6 +1393,48 @@ object IQMcpClient {
       case DiagnosticScope.File => baseArgs ++ path.map("path" -> _)
     }
     callTool("get_diagnostics", args, timeoutMs).map(decodeDiagnosticsResult)
+  }
+
+  /** Get file statistics without reading full content.
+    * @param path absolute path to the file
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or file stats with line/entity counts and processing status
+    */
+  def callGetFileStats(
+      path: String,
+      timeoutMs: Long
+  ): Either[String, FileStatsResult] = {
+    val args = Map("path" -> path)
+    callTool("get_file_stats", args, normalizedToolTimeout(timeoutMs))
+      .map(decodeFileStatsResult)
+  }
+
+  /** Get PIDE processing status for a file.
+    * @param path absolute path to the file
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or processing status with command counts
+    */
+  def callGetProcessingStatus(
+      path: String,
+      timeoutMs: Long
+  ): Either[String, ProcessingStatusResult] = {
+    val args = Map("path" -> path)
+    callTool("get_processing_status", args, normalizedToolTimeout(timeoutMs))
+      .map(decodeProcessingStatusResult)
+  }
+
+  /** Find all sorry/oops commands in a file.
+    * @param path absolute path to the file
+    * @param timeoutMs MCP call timeout in milliseconds
+    * @return Either error message or sorry positions with line numbers and enclosing proof names
+    */
+  def callGetSorryPositions(
+      path: String,
+      timeoutMs: Long
+  ): Either[String, SorryPositionsResult] = {
+    val args = Map("path" -> path)
+    callTool("get_sorry_positions", args, normalizedToolTimeout(timeoutMs))
+      .map(decodeSorryPositionsResult)
   }
 
   /** Execute an I/Q explore query (proof verification, sledgehammer, find_theorems, etc.).

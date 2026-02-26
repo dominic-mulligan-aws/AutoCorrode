@@ -144,6 +144,9 @@ object ToolPermissions {
     ToolId.GetProofOutline -> Allow,
     ToolId.GetDependencies -> Allow,
     ToolId.GetEntities -> Allow,
+    ToolId.GetFileStats -> Allow,
+    ToolId.GetProcessingStatus -> Allow,
+    ToolId.GetSorryPositions -> Allow,
     ToolId.SetCursorPosition -> Allow,
     
     // I/Q-dependent verification (computational but non-destructive) → AskAtFirstUse
@@ -199,6 +202,9 @@ object ToolPermissions {
     ToolId.GetProofOutline -> "read proof structure outline",
     ToolId.GetDependencies -> "read theory dependencies",
     ToolId.GetEntities -> "list definitions and lemmas",
+    ToolId.GetFileStats -> "get file statistics without reading content",
+    ToolId.GetProcessingStatus -> "check PIDE processing status",
+    ToolId.GetSorryPositions -> "find incomplete proofs (sorry/oops)",
     ToolId.SetCursorPosition -> "move the cursor position",
     ToolId.VerifyProof -> "verify proof methods using Isabelle",
     ToolId.ExecuteStep -> "execute proof steps",
