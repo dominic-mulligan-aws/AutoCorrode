@@ -6,6 +6,7 @@ package isabelle.assistant
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 
+
 /**
  * Tests for AssistantOptions pure parsing and key resolution helpers.
  */
@@ -115,5 +116,48 @@ class AssistantOptionsTest extends AnyFunSuite with Matchers {
   test("parseSnapshot should clamp maxToolIterations to valid range") {
     parse(Map("assistant.max.tool.iterations" -> "100")).maxToolIterations shouldBe None
     parse(Map("assistant.max.tool.iterations" -> "-5")).maxToolIterations shouldBe None
+  }
+
+  test("parseSnapshot should accept valid planning model ID") {
+    val snapshot = parse(Map("assistant.planning.model.id" -> "anthropic.claude-3-haiku-20240307-v1:0"))
+    snapshot.planningBaseModelId shouldBe "anthropic.claude-3-haiku-20240307-v1:0"
+  }
+
+  test("parseSnapshot should reject invalid planning model ID") {
+    val snapshot = parse(Map("assistant.planning.model.id" -> "meta.llama3-8b-instruct-v1:0"))
+    snapshot.planningBaseModelId shouldBe ""
+  }
+
+  test("parseSnapshot should allow empty planning model ID (use main model)") {
+    val snapshot = parse(Map("assistant.planning.model.id" -> ""))
+    snapshot.planningBaseModelId shouldBe ""
+  }
+
+  test("parseSnapshot should parse valid planning temperature") {
+    val snapshot = parse(Map("assistant.planning.temperature" -> "0.5"))
+    snapshot.planningTemperature shouldBe Some(0.5)
+  }
+
+  test("parseSnapshot should treat empty planning temperature as None") {
+    val snapshot = parse(Map("assistant.planning.temperature" -> ""))
+    snapshot.planningTemperature shouldBe None
+  }
+
+  test("parseSnapshot should reject out-of-range planning temperature") {
+    val snapshot1 = parse(Map("assistant.planning.temperature" -> "1.5"))
+    snapshot1.planningTemperature shouldBe None
+    
+    val snapshot2 = parse(Map("assistant.planning.temperature" -> "-0.5"))
+    snapshot2.planningTemperature shouldBe None
+  }
+
+  test("parseSnapshot should reject invalid planning temperature string") {
+    val snapshot = parse(Map("assistant.planning.temperature" -> "not-a-number"))
+    snapshot.planningTemperature shouldBe None
+  }
+
+  test("planning_model and planning_temperature should be in settingDefs") {
+    AssistantOptions.hasSettingKey("planning_model") shouldBe true
+    AssistantOptions.hasSettingKey("planning_temperature") shouldBe true
   }
 }
