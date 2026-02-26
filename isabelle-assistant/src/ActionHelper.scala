@@ -4,6 +4,7 @@
 package isabelle.assistant
 
 import isabelle._
+import org.gjt.sp.jedit.View
 
 /**
  * Shared helper for the common action pattern: fork a background thread,
@@ -54,4 +55,39 @@ object ActionHelper {
         AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
       }
     )
+
+  /**
+   * Run an I/Q-backed command action: fork background thread, check command at cursor, execute body.
+   * Handles the common pattern of verifying cursor position before dispatching I/Q work.
+   * The body receives the view and is executed on a background thread, allowing it to safely
+   * call IQIntegration.*Async methods which handle their own threading and GUI callbacks.
+   * 
+   * @param name Thread name for debugging
+   * @param status Status text to display while running
+   * @param body Work to execute after verifying command exists (receives View)
+   * @param view The current jEdit view
+   */
+  def runIQCommand(
+      name: String,
+      status: String
+  )(body: View => Unit)(view: org.gjt.sp.jedit.View): Unit = {
+    val buffer = view.getBuffer
+    val offset = view.getTextArea.getCaretPosition
+    AssistantDockable.setStatus(status)
+    
+    val _ = Isabelle_Thread.fork(name = name) {
+      // Verify command exists at cursor (this may call I/Q MCP so must be on background thread)
+      CommandExtractor.getCommandAtOffset(buffer, offset) match {
+        case None =>
+          GUI_Thread.later {
+            ChatAction.addResponse("No Isabelle command at cursor position.")
+            AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+          }
+        case Some(_) => 
+          // Command exists — execute the body
+          // Body will typically call IQIntegration.*Async which handles its own threading
+          body(view)
+      }
+    }
+  }
 }

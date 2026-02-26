@@ -628,24 +628,31 @@ class AssistantDockable(view: View, position: String)
 
   /** Show the completion popup with the given completions */
   private def showCompletionPopup(completions: Array[String]): Unit = {
-    for {
-      window <- completionWindow
-      list <- completionList
-    } {
-      list.setListData(completions)
-      list.setSelectedIndex(0)
-      
-      // Position popup below the input panel
-      val inputLocation = inputPanel.getLocationOnScreen
-      val inputHeight = inputPanel.getHeight
-      window.setLocation(inputLocation.x, inputLocation.y + inputHeight)
-      
-      // Size to fit content
-      window.pack()
-      val preferredWidth = Math.max(200, inputPanel.getWidth / 2)
-      window.setSize(preferredWidth, window.getHeight)
-      
-      if (!window.isVisible) window.setVisible(true)
+    // Get the position early, fail fast if component not on screen
+    val locationOpt = try {
+      Some((inputPanel.getLocationOnScreen, inputPanel.getHeight))
+    } catch {
+      case _: java.awt.IllegalComponentStateException => None
+    }
+    
+    locationOpt.foreach { case (inputLocation, inputHeight) =>
+      for {
+        window <- completionWindow
+        list <- completionList
+      } {
+        list.setListData(completions)
+        list.setSelectedIndex(0)
+        
+        // Position popup below the input panel
+        window.setLocation(inputLocation.x, inputLocation.y + inputHeight)
+        
+        // Size to fit content
+        window.pack()
+        val preferredWidth = Math.max(200, inputPanel.getWidth / 2)
+        window.setSize(preferredWidth, window.getHeight)
+        
+        if (!window.isVisible) window.setVisible(true)
+      }
     }
   }
 
