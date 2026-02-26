@@ -704,22 +704,36 @@ object BedrockClient {
             catch { case _: Exception | _: LinkageError => () }
             try { AssistantDockable.setStatus(s"[tool] ${tu.name} ($iteration/$iterStr)...") }
             catch { case _: Exception | _: LinkageError => () }
-            // Add tool message to chat UI (skip for task list tools since they inject their own widgets)
-            if (!tu.name.startsWith("task_list_")) {
+            
+            // Skip tool call bubble for tools that inject their own widgets
+            val skipToolCallBubble = tu.name.startsWith("task_list_") || tu.name == "ask_user"
+            if (!skipToolCallBubble) {
               try {
                 GUI_Thread.later {
                   ChatAction.addToolMessage(tu.name, tu.input)
                 }
               } catch { case _: Exception | _: LinkageError => () }
             }
+            
             val result = toolExecutor(tu.name, tu.input)
 
-            // Display tool result in chat UI
-            try {
-              GUI_Thread.later {
-                ChatAction.addTransient(s"→ Tool result: ${result.take(200)}${if (result.length > 200) "..." else ""}")
-              }
-            } catch { case _: Exception | _: LinkageError => () }
+            // Skip tool result bubble for tools that inject their own widgets
+            // (task_list_* and ask_user already show rich UI widgets)
+            val skipToolResultBubble = tu.name.startsWith("task_list_") || tu.name == "ask_user"
+            if (!skipToolResultBubble) {
+              try {
+                GUI_Thread.later {
+                  val html = WidgetRenderer.toolResult(
+                    tu.name,
+                    result,
+                    action => AssistantDockable.registerAction(action)
+                  )
+                  ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html,
+                    java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+                  AssistantDockable.showConversation(ChatAction.getHistory)
+                }
+              } catch { case _: Exception | _: LinkageError => () }
+            }
             (tu.id, result)
           }
 

@@ -473,7 +473,7 @@ object AssistantTools {
     ),
     ToolDef(
       "task_list_add",
-      "Add a new task to the session task list. Each task should have a clear title, detailed description of what needs to be done, and specific acceptance criteria for completion.",
+      "Add a new task to the session task list. Each task should have a clear title, detailed description of what needs to be done, and specific acceptance criteria for completion. After adding all planned tasks, you MUST call task_list_next to begin work on the first task.",
       List(
         ToolParam(
           "title",
@@ -497,7 +497,7 @@ object AssistantTools {
     ),
     ToolDef(
       "task_list_done",
-      "Mark a task as completed. Use this when a task has been successfully finished and all acceptance criteria have been met.",
+      "Mark a task as completed. You MUST call this immediately after a task's acceptance criteria are met. After marking done, you MUST call task_list_next to retrieve and begin work on the next pending task. Never skip this workflow.",
       List(
         ToolParam(
           "task_id",
@@ -509,7 +509,7 @@ object AssistantTools {
     ),
     ToolDef(
       "task_list_irrelevant",
-      "Mark a task as irrelevant or no longer needed. Use this when a task is obsolete, out of scope, or superseded by other work.",
+      "Mark a task as irrelevant or no longer needed. You MUST call this immediately when a task becomes obsolete, out of scope, or superseded by other work. Do not leave obsolete tasks in pending state. After marking irrelevant, call task_list_next to continue with remaining tasks.",
       List(
         ToolParam(
           "task_id",
@@ -2602,7 +2602,15 @@ object AssistantTools {
       AssistantDockable.showConversation(ChatAction.getHistory)
     }
     
-    result
+    // Add "next task" hint to guide the agent
+    val nextHint = TaskList.getTasks.find(_.status == TaskList.Todo) match {
+      case Some(next) => 
+        s"\n\n→ Next pending task: #${next.id} '${next.title}'. You MUST now call task_list_next to retrieve its details and continue working."
+      case None => 
+        "\n\n→ All tasks complete! Verify your work is finished."
+    }
+    
+    result + nextHint
   }
 
   /** Mark task as irrelevant and inject status widget. Returns confirmation or error. */
@@ -2621,7 +2629,15 @@ object AssistantTools {
       AssistantDockable.showConversation(ChatAction.getHistory)
     }
     
-    result
+    // Add "next task" hint to guide the agent
+    val nextHint = TaskList.getTasks.find(_.status == TaskList.Todo) match {
+      case Some(next) => 
+        s"\n\n→ Next pending task: #${next.id} '${next.title}'. You MUST now call task_list_next to retrieve its details and continue working."
+      case None => 
+        "\n\n→ All tasks resolved. Verify your work is complete."
+    }
+    
+    result + nextHint
   }
 
   /** Get next pending task and inject full task list widget. Returns next task details or "no pending tasks". */
