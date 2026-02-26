@@ -540,6 +540,23 @@ object AssistantTools {
           required = true
         )
       )
+    ),
+    ToolDef(
+      "plan_approach",
+      "Launch a planning agent to analyze a problem and generate a detailed implementation plan. The planning agent uses an adaptive tree-of-thought approach: brainstorms 3 approaches, elaborates each in parallel using exploration tools, then selects the best one. Use this for non-trivial multi-step tasks like complex proofs, refactoring, or multi-file changes. Do NOT use for simple one-step operations.",
+      List(
+        ToolParam(
+          "problem",
+          "string",
+          "Detailed description of the problem to plan for. Include the goal, relevant context, and any constraints.",
+          required = true
+        ),
+        ToolParam(
+          "scope",
+          "string",
+          "Hint about scope: 'proof', 'refactor', 'multi-file', etc. Helps focus the planning."
+        )
+      )
     )
   )
 
@@ -615,6 +632,17 @@ object AssistantTools {
   }
 
   /**
+   * Write planning tool definitions (read-only exploration tools only).
+   * Used by planning sub-agents to prevent write operations and recursion.
+   */
+  def writePlanningToolsJson(g: JsonGenerator): Unit = {
+    val planningTools = tools.filter(t => ToolId.planningToolIds.contains(t.id))
+    g.writeArrayFieldStart("tools")
+    for (tool <- planningTools) writeToolJson(g, tool)
+    g.writeEndArray()
+  }
+
+  /**
    * Execute a tool with permission checking.
    * Wraps executeTool with capability-based authorization.
    * Returns tool result or permission denial message.
@@ -682,7 +710,8 @@ object AssistantTools {
       ToolId.TaskListIrrelevant -> ((a, v) => execTaskListIrrelevant(a, v)),
       ToolId.TaskListNext -> ((_, v) => execTaskListNext(v)),
       ToolId.TaskListShow -> ((_, v) => execTaskListShow(v)),
-      ToolId.TaskListGet -> ((a, v) => execTaskListGet(a, v))
+      ToolId.TaskListGet -> ((a, v) => execTaskListGet(a, v)),
+      ToolId.PlanApproach -> ((a, v) => execPlanApproach(a, v))
     )
 
   def executeToolWithPermission(
@@ -2697,5 +2726,27 @@ object AssistantTools {
       options: List[String],
       onChoice: String => Unit
   ): String = WidgetRenderer.askUser(question, context, options, onChoice)
+
+  /** Launch planning agent with adaptive tree-of-thought approach.
+    * Delegates to BedrockClient.invokePlanningAgent.
+    * Returns detailed plan or error message.
+    */
+  private def execPlanApproach(
+      args: ResponseParser.ToolArgs,
+      view: View
+  ): String = {
+    val problem = safeStringArg(args, "problem", MAX_STRING_ARG_LENGTH)
+    val scope = safeStringArg(args, "scope", 100)
+    
+    if (problem.isEmpty) "Error: problem description required"
+    else {
+      try {
+        BedrockClient.invokePlanningAgent(problem, scope, view)
+      } catch {
+        case ex: Exception =>
+          s"Planning failed: ${ErrorHandler.makeUserFriendly(ex.getMessage, "planning")}"
+      }
+    }
+  }
 
 }

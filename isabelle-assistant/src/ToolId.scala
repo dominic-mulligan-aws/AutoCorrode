@@ -51,6 +51,7 @@ enum ToolId(val wireName: String) {
   case TaskListNext extends ToolId("task_list_next")
   case TaskListShow extends ToolId("task_list_show")
   case TaskListGet extends ToolId("task_list_get")
+  case PlanApproach extends ToolId("plan_approach")
 }
 
 object ToolId {
@@ -61,4 +62,17 @@ object ToolId {
 
   def displayName(id: ToolId): String =
     id.wireName.split("_").map(_.capitalize).mkString(" ")
+  
+  /** Tool IDs available to the planning sub-agent (read-only exploration only).
+    * Excludes write operations, verification tools, and the plan_approach tool itself
+    * to prevent recursion. */
+  val planningToolIds: Set[ToolId] = Set(
+    ReadTheory, ListTheories, SearchInTheory, SearchTheories, SearchAllTheories,
+    GetGoalState, GetSubgoal, GetProofContext, GetProofBlock, GetProofOutline,
+    GetContextInfo, GetCommandText, GetType,
+    FindTheorems, GetDefinitions, GetDependencies, GetEntities,
+    GetErrors, GetWarnings, GetDiagnostics,
+    GetFileStats, GetProcessingStatus, GetSorryPositions,
+    SetCursorPosition
+  )
 }
