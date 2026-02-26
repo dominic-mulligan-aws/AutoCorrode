@@ -40,6 +40,8 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
   private var traceTimeoutField: Option[JTextField] = None
   private var traceDepthField: Option[JTextField] = None
   private var maxToolIterationsField: Option[JTextField] = None
+  private var planningModelCombo: Option[JComboBox[String]] = None
+  private var planningTemperatureField: Option[JTextField] = None
 
   private def requireUi[A](opt: Option[A], fieldName: String): A =
     opt.getOrElse(
@@ -210,6 +212,38 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     traceDepthField = Some(traceDepth)
     addComponent("Trace Depth:", traceDepth)
 
+    addSeparator("Planning Agent")
+
+    val planningModel = new JComboBox[String]()
+    val planningModelId = AssistantOptions.getPlanningBaseModelId
+    val models = BedrockModels.getModels
+    planningModel.addItem("(use main model)")
+    models.foreach(planningModel.addItem)
+    if (planningModelId.nonEmpty && !models.contains(planningModelId)) {
+      planningModel.addItem(planningModelId)
+    }
+    if (planningModelId.nonEmpty) {
+      planningModel.setSelectedItem(planningModelId)
+    } else {
+      planningModel.setSelectedIndex(0)
+    }
+    planningModel.setToolTipText(
+      "Model for planning sub-agents (leave as 'use main model' to use the main model)"
+    )
+    planningModelCombo = Some(planningModel)
+    addComponent("Planning Model:", planningModel)
+
+    val planningTemp = AssistantOptions.getPlanningTemperature match {
+      case Some(t) => t.toString
+      case None    => ""
+    }
+    val planningTemperature = new JTextField(planningTemp, 10)
+    planningTemperature.setToolTipText(
+      "Temperature for planning agents (leave empty to use main temperature)"
+    )
+    planningTemperatureField = Some(planningTemperature)
+    addComponent("Planning Temperature:", planningTemperature)
+
   }
 
   private def populateModelCombo(models: Array[String], current: String): Unit = {
@@ -230,11 +264,14 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
   private def refreshModelsAsync(): Unit = {
     val regionCombo = requireUi(this.regionCombo, "regionCombo")
     val modelCombo = requireUi(this.modelCombo, "modelCombo")
+    val planningModelCombo = requireUi(this.planningModelCombo, "planningModelCombo")
     val refresh = requireUi(refreshButton, "refreshButton")
     val region =
       Option(regionCombo.getSelectedItem).map(_.toString).getOrElse("us-east-1")
     val current =
       Option(modelCombo.getSelectedItem).map(_.toString).getOrElse("")
+    val currentPlanning =
+      Option(planningModelCombo.getSelectedItem).map(_.toString).filter(_ != "(use main model)").getOrElse("")
     refresh.setEnabled(false)
     refresh.setText("Refreshing...")
 
@@ -247,6 +284,20 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
         try {
           val models = get()
           populateModelCombo(models, current)
+          
+          // Also update planning model combo
+          planningModelCombo.removeAllItems()
+          planningModelCombo.addItem("(use main model)")
+          models.foreach(planningModelCombo.addItem)
+          if (currentPlanning.nonEmpty && !models.contains(currentPlanning)) {
+            planningModelCombo.addItem(currentPlanning)
+          }
+          if (currentPlanning.nonEmpty) {
+            planningModelCombo.setSelectedItem(currentPlanning)
+          } else {
+            planningModelCombo.setSelectedIndex(0)
+          }
+          
           if (models.isEmpty) {
             JOptionPane.showMessageDialog(
               AssistantOptions.this,
@@ -289,7 +340,9 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       findTheoremsLimitField,
       findTheoremsTimeoutField,
       traceTimeoutField,
-      traceDepthField
+      traceDepthField,
+      planningModelCombo,
+      planningTemperatureField
     ) = (
       requireUi(this.regionCombo, "regionCombo"),
       requireUi(this.modelCombo, "modelCombo"),
@@ -309,7 +362,9 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       requireUi(this.findTheoremsLimitField, "findTheoremsLimitField"),
       requireUi(this.findTheoremsTimeoutField, "findTheoremsTimeoutField"),
       requireUi(this.traceTimeoutField, "traceTimeoutField"),
-      requireUi(this.traceDepthField, "traceDepthField")
+      requireUi(this.traceDepthField, "traceDepthField"),
+      requireUi(this.planningModelCombo, "planningModelCombo"),
+      requireUi(this.planningTemperatureField, "planningTemperatureField")
     )
 
     val warnings = ListBuffer.empty[String]
@@ -522,6 +577,40 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       50
     )
 
+    val planningModelValue = {
+      val value = Option(planningModelCombo.getSelectedItem)
+        .map(_.toString.trim)
+        .getOrElse("")
+      if (value == "(use main model)" || value.isEmpty) ""
+      else if (BedrockModels.isAnthropicModelId(value)) value
+      else {
+        warn("Planning Model ID was invalid and has been cleared.")
+        ""
+      }
+    }
+
+    val planningTemperatureValue = {
+      val raw = planningTemperatureField.getText.trim
+      if (raw.isEmpty) ""
+      else {
+        try {
+          val parsed = raw.toDouble
+          val clamped = math.max(
+            AssistantConstants.MIN_TEMPERATURE,
+            math.min(AssistantConstants.MAX_TEMPERATURE, parsed)
+          )
+          if (clamped != parsed) {
+            warn(s"Planning Temperature was clamped to $clamped (valid range: ${AssistantConstants.MIN_TEMPERATURE}-${AssistantConstants.MAX_TEMPERATURE}).")
+          }
+          clamped.toString
+        } catch {
+          case _: NumberFormatException =>
+            warn("Planning Temperature was invalid and has been cleared.")
+            ""
+        }
+      }
+    }
+
     jEdit.setProperty("assistant.aws.region", regionValue)
     jEdit.setProperty("assistant.model.id", modelValue)
     jEdit.setBooleanProperty("assistant.use.cris", crisCheckbox.isSelected)
@@ -547,6 +636,8 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     jEdit.setProperty("assistant.find.theorems.timeout", findTheoremsTimeoutValue)
     jEdit.setProperty("assistant.trace.timeout", traceTimeoutValue)
     jEdit.setProperty("assistant.trace.depth", traceDepthValue)
+    jEdit.setProperty("assistant.planning.model.id", planningModelValue)
+    jEdit.setProperty("assistant.planning.temperature", planningTemperatureValue)
 
     regionCombo.setSelectedItem(regionValue)
     modelCombo.setSelectedItem(modelValue)
@@ -564,6 +655,12 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     findTheoremsTimeoutField.setText(findTheoremsTimeoutValue)
     traceTimeoutField.setText(traceTimeoutValue)
     traceDepthField.setText(traceDepthValue)
+    if (planningModelValue.isEmpty) {
+      planningModelCombo.setSelectedIndex(0) // "(use main model)"
+    } else {
+      planningModelCombo.setSelectedItem(planningModelValue)
+    }
+    planningTemperatureField.setText(planningTemperatureValue)
 
     AssistantOptions.invalidateCache()
     AssistantDockable.refreshModelLabel()
@@ -628,7 +725,9 @@ object AssistantOptions {
       traceDepth: Int,
       useCris: Boolean,
       verifySuggestions: Boolean,
-      useSledgehammer: Boolean
+      useSledgehammer: Boolean,
+      planningBaseModelId: String,
+      planningTemperature: Option[Double]
   )
 
   @volatile private var _cache: Option[SettingsSnapshot] = None
@@ -692,6 +791,8 @@ object AssistantOptions {
 
     val region = prop("assistant.aws.region", "us-east-1")
     val modelId = prop("assistant.model.id", "")
+    val planningModelId = prop("assistant.planning.model.id", "")
+    val planningTempStr = prop("assistant.planning.temperature", "")
 
     SettingsSnapshot(
       region =
@@ -785,7 +886,18 @@ object AssistantOptions {
       ),
       useCris = boolProp("assistant.use.cris", true),
       verifySuggestions = boolProp("assistant.verify.suggestions", true),
-      useSledgehammer = boolProp("assistant.use.sledgehammer", false)
+      useSledgehammer = boolProp("assistant.use.sledgehammer", false),
+      planningBaseModelId = if (isValidBaseModelId(planningModelId)) planningModelId else "",
+      planningTemperature = {
+        val trimmed = planningTempStr.trim
+        if (trimmed.isEmpty) None
+        else try {
+          val parsed = trimmed.toDouble
+          if (parsed >= AssistantConstants.MIN_TEMPERATURE && parsed <= AssistantConstants.MAX_TEMPERATURE)
+            Some(parsed)
+          else None
+        } catch { case _: NumberFormatException => None }
+      }
     )
   }
 
@@ -812,12 +924,25 @@ object AssistantOptions {
   def getUseCris: Boolean = snapshot.useCris
   def getVerifySuggestions: Boolean = snapshot.verifySuggestions
   def getUseSledgehammer: Boolean = snapshot.useSledgehammer
+  def getPlanningBaseModelId: String = snapshot.planningBaseModelId
+  def getPlanningTemperature: Option[Double] = snapshot.planningTemperature
 
   def getModelId: String = {
     val base = getBaseModelId
     if (base.isEmpty) ""
     else if (getUseCris) BedrockModels.applyCrisPrefix(base, getRegion)
     else base
+  }
+
+  def getPlanningModelId: String = {
+    val base = getPlanningBaseModelId
+    if (base.isEmpty) getModelId // Fallback to main model if planning model not set
+    else if (getUseCris) BedrockModels.applyCrisPrefix(base, getRegion)
+    else base
+  }
+
+  def getEffectivePlanningTemperature: Double = {
+    getPlanningTemperature.getOrElse(getTemperature) // Fallback to main temperature if not set
   }
 
   // --- Data-driven setting definitions ---
@@ -950,6 +1075,38 @@ object AssistantOptions {
     }
   }
 
+  private case class OptionalDoubleSetting(
+      key: String,
+      prop: String,
+      min: Double,
+      max: Double,
+      getter: SettingsSnapshot => Option[Double]
+  ) extends SettingDef {
+    def get(s: SettingsSnapshot): String = getter(s) match {
+      case Some(d) => d.toString
+      case None    => "(use main)"
+    }
+    def set(value: String): Option[String] = {
+      val normalized = value.trim.toLowerCase
+      if (normalized.isEmpty || normalized == "none" || normalized == "default") {
+        jEdit.setProperty(prop, "")
+        Some(s"$key = (use main)")
+      } else
+        try {
+          val v = value.toDouble
+          if (v >= min && v <= max) {
+            jEdit.setProperty(prop, value); Some(s"$key = $value")
+          } else
+            Some(
+              s"$key must be between $min and $max, or empty/none/default to use main temperature"
+            )
+        } catch {
+          case _: NumberFormatException =>
+            Some(s"$key must be a number or empty/none/default")
+        }
+    }
+  }
+
   /** Registry of all settings — single source of truth for get/set/list. */
   private val settingDefs: List[SettingDef] = List(
     StringSetting(
@@ -1068,7 +1225,21 @@ object AssistantOptions {
       300,
       _.traceTimeout
     ),
-    IntSetting("trace_depth", "assistant.trace.depth", 1, 50, _.traceDepth)
+    IntSetting("trace_depth", "assistant.trace.depth", 1, 50, _.traceDepth),
+    StringSetting(
+      "planning_model",
+      "assistant.planning.model.id",
+      isValidBaseModelId,
+      "Invalid planning model ID. Only Anthropic model IDs are supported (or empty to use main model).",
+      s => if (s.planningBaseModelId.isEmpty) "(use main)" else s.planningBaseModelId
+    ),
+    OptionalDoubleSetting(
+      "planning_temperature",
+      "assistant.planning.temperature",
+      AssistantConstants.MIN_TEMPERATURE,
+      AssistantConstants.MAX_TEMPERATURE,
+      _.planningTemperature
+    )
   )
 
   /** Map from normalized key to definition, supporting aliases. */

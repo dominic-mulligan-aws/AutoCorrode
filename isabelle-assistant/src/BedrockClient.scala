@@ -302,8 +302,17 @@ object BedrockClient {
   /**
    * Invoke a single prompt with structured output via forced tool_choice.
    * Stateless with cache. Returns parsed tool arguments.
+   * 
+   * @param modelIdOverride Optional model ID override (defaults to main model)
+   * @param temperatureOverride Optional temperature override (defaults to main temperature)
    */
-  def invokeStructured(prompt: String, schema: StructuredResponseSchema, systemPrompt: String = ""): ToolArgs = {
+  def invokeStructured(
+      prompt: String, 
+      schema: StructuredResponseSchema, 
+      systemPrompt: String = "",
+      modelIdOverride: Option[String] = None,
+      temperatureOverride: Option[Double] = None
+  ): ToolArgs = {
     ErrorHandler.logOperation("invokeStructured") {
       val cacheKey = s"structured:${schema.name}:$prompt"
       LLMResponseCache.get(cacheKey) match {
@@ -312,7 +321,7 @@ object BedrockClient {
           ResponseParser.parseToolArgsJsonObject(cached)
         case None =>
           val args = retryWithBackoff(maxRetries) {
-            invokeStructuredInternal(prompt, schema, systemPrompt)
+            invokeStructuredInternal(prompt, schema, systemPrompt, modelIdOverride, temperatureOverride)
           }
           LLMResponseCache.put(cacheKey, ResponseParser.toolArgsToJson(args))
           args
@@ -356,11 +365,15 @@ object BedrockClient {
 
   /** Single-prompt structured invocation. */
   private def invokeStructuredInternal(
-    prompt: String, schema: StructuredResponseSchema, systemPrompt: String
+    prompt: String, 
+    schema: StructuredResponseSchema, 
+    systemPrompt: String,
+    modelIdOverride: Option[String] = None,
+    temperatureOverride: Option[Double] = None
   ): ToolArgs = {
-    val modelId = AssistantOptions.getModelId
+    val modelId = modelIdOverride.getOrElse(AssistantOptions.getModelId)
     requireAnthropicModel(modelId)
-    val temperature = AssistantOptions.getTemperature
+    val temperature = temperatureOverride.getOrElse(AssistantOptions.getTemperature)
     val maxTokens = AssistantOptions.getMaxTokens
 
     val fullSystemPrompt = List(PromptLoader.getSystemPrompt, systemPrompt).filter(_.nonEmpty).mkString("\n\n")
@@ -943,7 +956,12 @@ object BedrockClient {
    */
   def invokePlanningAgent(problem: String, scope: String, view: View): String = {
     ErrorHandler.logOperation("invokePlanningAgent") {
-      Output.writeln(s"[Assistant] Planning agent: starting adaptive tree-of-thought for: ${problem.take(80)}")
+      val planningModelId = AssistantOptions.getPlanningModelId
+      val planningTemp = AssistantOptions.getEffectivePlanningTemperature
+      val usingCustomModel = AssistantOptions.getPlanningBaseModelId.nonEmpty
+      val modelInfo = if (usingCustomModel) s" using planning model: $planningModelId" else s" using main model: $planningModelId"
+      Output.writeln(s"[Assistant] Planning agent: starting adaptive tree-of-thought$modelInfo (temp: $planningTemp)")
+      Output.writeln(s"[Assistant] Problem: ${problem.take(80)}")
       
       // Show initial planning widget
       GUI_Thread.later {
@@ -1066,10 +1084,15 @@ $contextSnapshot
 
 Generate exactly 3 distinct approaches to solve this problem. Each approach should use a different strategy or technique. Focus on diversity - the approaches should explore different angles rather than minor variations of the same idea."""
 
+    val planningModelId = AssistantOptions.getPlanningModelId
+    val planningTemp = AssistantOptions.getEffectivePlanningTemperature
+
     val args = BedrockClient.invokeStructured(
       prompt,
       StructuredResponseSchema.PlanningBrainstorm,
-      systemPrompt = "You are a problem-solving strategist. Your task is to brainstorm multiple distinct approaches to a given problem."
+      systemPrompt = "You are a problem-solving strategist. Your task is to brainstorm multiple distinct approaches to a given problem.",
+      modelIdOverride = Some(planningModelId),
+      temperatureOverride = Some(planningTemp)
     )
     
     // Parse the structured response
@@ -1225,9 +1248,9 @@ Produce a structured plan with:
 
   /** Run a planning sub-agent with read-only tools. */
   private def runPlanningSubAgent(prompt: String, view: View): String = {
-    val modelId = AssistantOptions.getModelId
+    val modelId = AssistantOptions.getPlanningModelId
     requireAnthropicModel(modelId)
-    val temperature = AssistantOptions.getTemperature
+    val temperature = AssistantOptions.getEffectivePlanningTemperature
     val maxTokens = AssistantOptions.getMaxTokens
     val planningSystemPrompt = PromptLoader.load("planning_agent_system.md", Map.empty)
     val messages = List(ChatTurn(BedrockRole.User, prompt))
@@ -1396,10 +1419,15 @@ Review all approaches and select the best one. Consider:
 
 Select the best approach and produce a final refined plan."""
 
+    val planningModelId = AssistantOptions.getPlanningModelId
+    val planningTemp = AssistantOptions.getEffectivePlanningTemperature
+
     val args = BedrockClient.invokeStructured(
       prompt,
       StructuredResponseSchema.PlanningSelect,
-      systemPrompt = "You are a technical reviewer selecting the best implementation plan from multiple options."
+      systemPrompt = "You are a technical reviewer selecting the best implementation plan from multiple options.",
+      modelIdOverride = Some(planningModelId),
+      temperatureOverride = Some(planningTemp)
     )
     
     SelectedPlan(
