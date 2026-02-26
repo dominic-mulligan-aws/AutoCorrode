@@ -247,6 +247,27 @@ object AssistantTools {
       )
     ),
     ToolDef(
+      "get_file_stats",
+      "Get file statistics (line count, entity count, processing status) without reading full content. Efficient alternative to read_theory + get_entities for overview. Requires I/Q plugin.",
+      List(
+        ToolParam("theory", "string", "Theory name", required = true)
+      )
+    ),
+    ToolDef(
+      "get_processing_status",
+      "Get PIDE processing status (unprocessed/running/finished/failed command counts). Use this to check if a theory has been fully processed before querying for errors. Requires I/Q plugin.",
+      List(
+        ToolParam("theory", "string", "Theory name", required = true)
+      )
+    ),
+    ToolDef(
+      "get_sorry_positions",
+      "Find all sorry/oops commands in a theory file with their line numbers and enclosing proof names. Useful for identifying incomplete proofs. Requires I/Q plugin.",
+      List(
+        ToolParam("theory", "string", "Theory name", required = true)
+      )
+    ),
+    ToolDef(
       "execute_step",
       "Execute a proof step and return the resulting proof state. Use this to explore what happens when you apply a proof method. Returns the new goal state and whether the proof is complete. Requires I/Q plugin.",
       List(
@@ -640,6 +661,9 @@ object AssistantTools {
       ToolId.GetErrors -> ((a, v) => execGetErrors(a, v)),
       ToolId.GetDiagnostics -> ((a, v) => execGetDiagnosticsUnified(a, v)),
       ToolId.GetDefinitions -> ((a, v) => execGetDefinitions(a, v)),
+      ToolId.GetFileStats -> ((a, v) => execGetFileStats(a, v)),
+      ToolId.GetProcessingStatus -> ((a, v) => execGetProcessingStatus(a, v)),
+      ToolId.GetSorryPositions -> ((a, v) => execGetSorryPositions(a, v)),
       ToolId.ExecuteStep -> ((a, v) => execExecuteStep(a, v)),
       ToolId.TraceSimplifier -> ((a, v) => execTraceSimplifier(a, v)),
       ToolId.GetProofBlock -> ((_, v) => execGetProofBlock(v)),
@@ -1574,6 +1598,102 @@ object AssistantTools {
     }
   }
 
+  /** Get file statistics (line count, entity count, processing status) without reading full content. */
+  private def execGetFileStats(
+      args: ResponseParser.ToolArgs,
+      @unused view: View
+  ): String = {
+    safeTheoryArg(args) match {
+      case Left(err) => err
+      case Right(theory) =>
+        if (!IQAvailable.isAvailable) "I/Q plugin not available."
+        else {
+          resolveTheoryPath(theory).fold(
+            err => err,
+            path =>
+              IQMcpClient
+                .callGetFileStats(path, readToolsTimeoutMs)
+                .fold(
+                  mcpErr => s"Error: $mcpErr",
+                  stats => {
+                    val processedStatus = if (stats.fullyProcessed) "fully processed" else "processing"
+                    val errorStatus = if (stats.hasErrors) s", ${stats.errorCount} errors" else ", no errors"
+                    val warningStatus = if (stats.warningCount > 0) s", ${stats.warningCount} warnings" else ""
+                    s"$theory: ${stats.lineCount} lines, ${stats.entityCount} entities, $processedStatus$errorStatus$warningStatus"
+                  }
+                )
+          )
+        }
+    }
+  }
+
+  /** Get PIDE processing status (unprocessed/running/finished/failed command counts). */
+  private def execGetProcessingStatus(
+      args: ResponseParser.ToolArgs,
+      @unused view: View
+  ): String = {
+    safeTheoryArg(args) match {
+      case Left(err) => err
+      case Right(theory) =>
+        if (!IQAvailable.isAvailable) "I/Q plugin not available."
+        else {
+          resolveTheoryPath(theory).fold(
+            err => err,
+            path =>
+              IQMcpClient
+                .callGetProcessingStatus(path, readToolsTimeoutMs)
+                .fold(
+                  mcpErr => s"Error: $mcpErr",
+                  status => {
+                    val processedLabel = if (status.fullyProcessed) "Fully processed" else "Processing"
+                    val parts = List(
+                      s"$processedLabel",
+                      s"unprocessed: ${status.unprocessed}",
+                      s"running: ${status.running}",
+                      s"finished: ${status.finished}",
+                      s"failed: ${status.failed}",
+                      s"consolidated: ${status.consolidated}"
+                    )
+                    parts.mkString("\n")
+                  }
+                )
+          )
+        }
+    }
+  }
+
+  /** Find all sorry/oops commands in a theory file with line numbers and enclosing proof names. */
+  private def execGetSorryPositions(
+      args: ResponseParser.ToolArgs,
+      @unused view: View
+  ): String = {
+    safeTheoryArg(args) match {
+      case Left(err) => err
+      case Right(theory) =>
+        if (!IQAvailable.isAvailable) "I/Q plugin not available."
+        else {
+          resolveTheoryPath(theory).fold(
+            err => err,
+            path =>
+              IQMcpClient
+                .callGetSorryPositions(path, readToolsTimeoutMs)
+                .fold(
+                  mcpErr => s"Error: $mcpErr",
+                  result => {
+                    if (result.count == 0) s"No sorry/oops commands in $theory."
+                    else {
+                      val lines = result.positions.map { pos =>
+                        s"Line ${pos.line}: ${pos.keyword} in ${pos.inProof}"
+                      }
+                      s"Found ${result.count} sorry/oops command${if (result.count == 1) "" else "s"} in $theory:\n${lines.mkString("\n")}"
+                    }
+                  }
+                )
+          )
+        }
+    }
+  }
+
   /** Execute a proof step and return resulting state via I/Q MCP. Returns [COMPLETE] or subgoal count + state. */
   private def execExecuteStep(
       args: ResponseParser.ToolArgs,
@@ -2311,16 +2431,16 @@ object AssistantTools {
 
                       writeResult.fold(
                         err => s"Error: $err",
-                        _ => {
-                          // Get updated line count from the write result or re-read if needed
-                          val newLineCount = IQMcpClient
-                            .callReadFileLine(
-                              path = path,
-                              startLine = Some(1),
-                              endLine = Some(-1),
-                              timeoutMs = readToolsTimeoutMs
-                            )
-                            .map(lineCountFromNumberedContent)
+                        result => {
+                          // Get line count from write_file response summary (Phase 3.5 enhancement)
+                          val newLineCount = result.summary
+                            .get("new_line_count")
+                            .flatMap {
+                              case i: Int => Some(i)
+                              case l: Long if l.isValidInt => Some(l.toInt)
+                              case d: Double if d.isWhole && d.isValidInt => Some(d.toInt)
+                              case _ => None
+                            }
                             .getOrElse(-1)
                           
                           val action = operation match {

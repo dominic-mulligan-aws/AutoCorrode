@@ -656,6 +656,15 @@ class IQServer(
         IQToolName.GetDiagnostics -> (params =>
           handleGetDiagnostics(params.toMap).map(IQToolResult.fromMap)
         ),
+        IQToolName.GetFileStats -> (params =>
+          handleGetFileStats(params.toMap).map(IQToolResult.fromMap)
+        ),
+        IQToolName.GetProcessingStatus -> (params =>
+          handleGetProcessingStatus(params.toMap).map(IQToolResult.fromMap)
+        ),
+        IQToolName.GetSorryPositions -> (params =>
+          handleGetSorryPositions(params.toMap).map(IQToolResult.fromMap)
+        ),
         IQToolName.Explore -> (params =>
           handleExplore(params.toMap).map(IQToolResult.fromMap)
         ),
@@ -3157,7 +3166,19 @@ class IQServer(
       case Left(err) => return Left(f"handleGetCommandCore failed with $err")
     }
 
-    Right(Map("commands" -> coreResult.commandsData, "summary" -> coreResult.summary))
+    // Enhance summary with line count and bytes written
+    val newContent = getFileContent(filePath).getOrElse("")
+    val newLineCount = IQLineOffsetUtils.splitLines(newContent).length
+    val bytesWritten = text.getBytes("UTF-8").length
+    val linesAffected = math.abs(newEndOffset - startOffset)
+    
+    val enhancedSummary = coreResult.summary ++ Map(
+      "new_line_count" -> newLineCount,
+      "bytes_written" -> bytesWritten,
+      "lines_affected" -> linesAffected
+    )
+
+    Right(Map("commands" -> coreResult.commandsData, "summary" -> enhancedSummary))
   }
 
   private def openFileCommon(
@@ -4452,6 +4473,7 @@ end"""
    * Handles the explore tool request.
    *
    * Applies Isabelle exploration queries to commands, similar to I/Q Explore functionality.
+   * For find_theorems, supports batch queries with semicolon-separated patterns.
    *
    * @param params The tool parameters
    * @return Either error message or result data
@@ -4481,7 +4503,12 @@ end"""
 
       decodeAndAuthorizeTargetSelection(params, "explore").flatMap { selection =>
         resolveTargetSelection(selection).map { resolvedTarget =>
-          executeExploration(resolvedTarget, parsedQuery, arguments, maxResults)
+          // Check if this is a batch find_theorems query (semicolon-separated patterns)
+          if (parsedQuery == ExploreQuery.FindTheorems && arguments.contains(";")) {
+            executeBatchFindTheorems(resolvedTarget, arguments, maxResults)
+          } else {
+            executeExploration(resolvedTarget, parsedQuery, arguments, maxResults)
+          }
         }
       }
     } catch {
@@ -4494,6 +4521,79 @@ end"""
         err.printStackTrace()
         Left(s"Internal linkage error: ${throwableMessage(err)}")
     }
+  }
+
+  /**
+   * Execute batch find_theorems with semicolon-separated patterns.
+   * Runs each pattern query sequentially and aggregates results.
+   *
+   * @param resolvedTarget Canonical resolved command target
+   * @param patterns Semicolon-separated find_theorems patterns
+   * @param maxResults Optional result limit per pattern
+   * @return A map containing aggregated results
+   */
+  private def executeBatchFindTheorems(
+    resolvedTarget: IQUtils.TargetResolution,
+    patterns: String,
+    maxResults: Option[Int]
+  ): Map[String, Any] = {
+    val patternList = patterns.split(";").map(_.trim).filter(_.nonEmpty).toList
+    
+    if (patternList.isEmpty) {
+      return Map(
+        "success" -> false,
+        "error" -> "No valid patterns provided",
+        "results" -> "",
+        "message" -> "Empty pattern list after splitting by semicolon"
+      )
+    }
+    
+    Output.writeln(s"I/Q Server: Executing batch find_theorems with ${patternList.length} patterns")
+    
+    // Execute each pattern query and collect results
+    val allResults = scala.collection.mutable.ListBuffer[String]()
+    var anySuccess = false
+    var anyTimedOut = false
+    val errors = scala.collection.mutable.ListBuffer[String]()
+    
+    for ((pattern, idx) <- patternList.zipWithIndex) {
+      Output.writeln(s"I/Q Server: Running find_theorems query ${idx + 1}/${patternList.length}: $pattern")
+      val result = executeExploration(resolvedTarget, ExploreQuery.FindTheorems, pattern, maxResults)
+      
+      if (boolField(result, "success")) {
+        anySuccess = true
+        val results = stringField(result, "results").trim
+        if (results.nonEmpty && results != "No results") {
+          // Add section header for this pattern
+          allResults += s"=== Pattern ${idx + 1}: $pattern ===\n$results"
+        }
+      } else {
+        if (boolField(result, "timed_out")) anyTimedOut = true
+        result.get("error").foreach(err => errors += s"Pattern ${idx + 1} ($pattern): ${err.toString}")
+      }
+    }
+    
+    val aggregatedResults = if (allResults.nonEmpty) allResults.mkString("\n\n") else "No results"
+    val message = if (anySuccess && allResults.nonEmpty) {
+      s"Batch find_theorems completed: ${allResults.length} of ${patternList.length} patterns found results"
+    } else if (anyTimedOut) {
+      s"Batch find_theorems timed out on some queries"
+    } else if (errors.nonEmpty) {
+      s"Batch find_theorems failed on some queries"
+    } else {
+      s"Batch find_theorems completed but found no results"
+    }
+    
+    Map(
+      "success" -> anySuccess,
+      "selection" -> targetSelectionToMap(resolvedTarget.selection),
+      "command_found" -> resolvedTarget.command.source.trim.take(200),
+      "results" -> aggregatedResults,
+      "timed_out" -> anyTimedOut,
+      "message" -> message,
+      "patterns_count" -> patternList.length,
+      "successful_patterns" -> allResults.length
+    ) ++ (if (errors.nonEmpty) Map("errors" -> errors.toList) else Map.empty)
   }
 
   /**
@@ -4772,6 +4872,160 @@ end"""
           "results" -> "",
           "message" -> s"Failed to execute exploration due to linkage error: ${throwableMessage(err)}"
         )
+    }
+  }
+
+  /**
+   * Handles the get_file_stats tool request.
+   * Returns file metadata without reading full content.
+   */
+  private def handleGetFileStats(params: Map[String, Any]): Either[String, Map[String, Any]] = {
+    val filePath = params.get("path").map(_.toString.trim).filter(_.nonEmpty) match {
+      case Some(path) =>
+        IQUtils.autoCompleteFilePath(path) match {
+          case Right(fullPath) =>
+            authorizeReadPath("get_file_stats", fullPath) match {
+              case Right(authorizedPath) => authorizedPath
+              case Left(errorMsg) => return Left(errorMsg)
+            }
+          case Left(errorMsg) => return Left(errorMsg)
+        }
+      case None => return Left("Missing required parameter: path")
+    }
+
+    getFileContentAndModel(filePath) match {
+      case (Some(content), Some(model)) =>
+        val lines = IQLineOffsetUtils.splitLines(content)
+        val lineCount = lines.length
+        
+        // Entity count from PIDE commands
+        val snapshot = Document_Model.snapshot(model)
+        val node = snapshot.get_node(model.node_name)
+        val entityCount = if (node != null) {
+          node.command_iterator().count { case (cmd, _) => 
+            EntityKeywords.contains(cmd.span.name)
+          }
+        } else 0
+        
+        // Processing status and diagnostics
+        val nodeStatus = Document_Status.Node_Status.make(
+          Date.now(), snapshot.state, snapshot.version, model.node_name
+        )
+        
+        Right(Map(
+          "path" -> filePath,
+          "line_count" -> lineCount,
+          "entity_count" -> entityCount,
+          "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
+          "has_errors" -> (nodeStatus.failed > 0),
+          "error_count" -> nodeStatus.failed,
+          "warning_count" -> nodeStatus.warned
+        ))
+      case _ => Left(s"File not tracked: $filePath")
+    }
+  }
+
+  /**
+   * Handles the get_processing_status tool request.
+   * Returns PIDE processing status for a file.
+   */
+  private def handleGetProcessingStatus(params: Map[String, Any]): Either[String, Map[String, Any]] = {
+    val filePath = params.get("path").map(_.toString.trim).filter(_.nonEmpty) match {
+      case Some(path) =>
+        IQUtils.autoCompleteFilePath(path) match {
+          case Right(fullPath) =>
+            authorizeReadPath("get_processing_status", fullPath) match {
+              case Right(authorizedPath) => authorizedPath
+              case Left(errorMsg) => return Left(errorMsg)
+            }
+          case Left(errorMsg) => return Left(errorMsg)
+        }
+      case None => return Left("Missing required parameter: path")
+    }
+
+    getFileContentAndModel(filePath) match {
+      case (_, Some(model)) =>
+        val snapshot = Document_Model.snapshot(model)
+        val nodeStatus = Document_Status.Node_Status.make(
+          Date.now(), snapshot.state, snapshot.version, model.node_name
+        )
+        
+        Right(Map(
+          "path" -> filePath,
+          "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
+          "unprocessed" -> nodeStatus.unprocessed,
+          "running" -> nodeStatus.running,
+          "finished" -> nodeStatus.finished,
+          "failed" -> nodeStatus.failed,
+          "has_errors" -> (nodeStatus.failed > 0),
+          "error_count" -> nodeStatus.failed,
+          "consolidated" -> nodeStatus.consolidated
+        ))
+      case _ => Left(s"File not tracked: $filePath")
+    }
+  }
+
+  /**
+   * Handles the get_sorry_positions tool request.
+   * Finds all sorry/oops commands via PIDE markup.
+   */
+  private def handleGetSorryPositions(params: Map[String, Any]): Either[String, Map[String, Any]] = {
+    val filePath = params.get("path").map(_.toString.trim).filter(_.nonEmpty) match {
+      case Some(path) =>
+        IQUtils.autoCompleteFilePath(path) match {
+          case Right(fullPath) =>
+            authorizeReadPath("get_sorry_positions", fullPath) match {
+              case Right(authorizedPath) => authorizedPath
+              case Left(errorMsg) => return Left(errorMsg)
+            }
+          case Left(errorMsg) => return Left(errorMsg)
+        }
+      case None => return Left("Missing required parameter: path")
+    }
+
+    getFileContentAndModel(filePath) match {
+      case (Some(content), Some(model)) =>
+        val snapshot = Document_Model.snapshot(model)
+        val node = snapshot.get_node(model.node_name)
+        val lineDoc = Line.Document(content)
+        
+        if (node == null || node.commands.isEmpty) {
+          Right(Map("path" -> filePath, "count" -> 0, "positions" -> List.empty[Map[String, Any]]))
+        } else {
+          // Find sorry/oops commands
+          val sorryKeywords = Set("sorry", "oops")
+          val commands = node.command_iterator().toList
+          
+          // Find enclosing proof for each sorry
+          def findEnclosingProof(sorryIndex: Int): String = {
+            val proofStarters = Set("lemma", "theorem", "corollary", "proposition", "schematic_goal")
+            commands.take(sorryIndex).reverse.collectFirst {
+              case (cmd, _) if proofStarters.contains(cmd.span.name) =>
+                EntityNamePattern.findFirstMatchIn(cmd.source.take(200))
+                  .map(_.group(1))
+                  .getOrElse(s"${cmd.span.name} (unnamed)")
+            }.getOrElse("(unknown)")
+          }
+          
+          val positions = commands.zipWithIndex.collect {
+            case ((cmd, offset), idx) if sorryKeywords.contains(cmd.span.name) =>
+              val line = lineDoc.position(offset).line + 1
+              val enclosingProof = findEnclosingProof(idx)
+              Map(
+                "line" -> line,
+                "keyword" -> cmd.span.name,
+                "offset" -> offset,
+                "in_proof" -> enclosingProof
+              )
+          }
+          
+          Right(Map(
+            "path" -> filePath,
+            "count" -> positions.length,
+            "positions" -> positions
+          ))
+        }
+      case _ => Left(s"File not tracked: $filePath")
     }
   }
 
