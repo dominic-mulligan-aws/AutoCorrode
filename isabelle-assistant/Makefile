@@ -175,7 +175,7 @@ verify-test-coverage:
 
 fetch-test-deps:
 	@if ! ls lib/test/*.jar >/dev/null 2>&1; then \
-		echo "Downloading ScalaTest JARs..."; \
+		echo "Downloading ScalaTest and ScalaCheck JARs..."; \
 		mkdir -p lib/test; \
 		for jar in \
 			"org/scalatest/scalatest_3/3.2.17/scalatest_3-3.2.17.jar" \
@@ -184,7 +184,9 @@ fetch-test-deps:
 			"org/scalatest/scalatest-matchers-core_3/3.2.17/scalatest-matchers-core_3-3.2.17.jar" \
 			"org/scalatest/scalatest-shouldmatchers_3/3.2.17/scalatest-shouldmatchers_3-3.2.17.jar" \
 			"org/scalactic/scalactic_3/3.2.17/scalactic_3-3.2.17.jar" \
-			"org/scalatest/scalatest-compatible/3.2.17/scalatest-compatible-3.2.17.jar"; \
+			"org/scalatest/scalatest-compatible/3.2.17/scalatest-compatible-3.2.17.jar" \
+			"org/scalacheck/scalacheck_3/1.17.0/scalacheck_3-1.17.0.jar" \
+			"org/scalatestplus/scalacheck-1-17_3/3.2.17.0/scalacheck-1-17_3-3.2.17.0.jar"; \
 		do \
 			filename=$$(basename "$$jar"); \
 			if [ ! -f "lib/test/$$filename" ]; then \

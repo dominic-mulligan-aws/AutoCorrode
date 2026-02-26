@@ -6,7 +6,6 @@ package isabelle.assistant
 import isabelle._
 import org.gjt.sp.jedit.View
 import java.util.concurrent.{CountDownLatch, TimeUnit}
-import java.util.Locale
 import scala.annotation.unused
 import scala.util.control.NonFatal
 import scala.jdk.CollectionConverters._
@@ -733,65 +732,16 @@ object AssistantTools {
     }
   }
 
-  /** Maximum length for string arguments from LLM tool calls. */
-  private val MAX_STRING_ARG_LENGTH = 10000
-
-  /** Maximum length for proof text arguments. */
-  private val MAX_PROOF_ARG_LENGTH = 5000
-
-  /** Maximum length for search pattern arguments. */
-  private val MAX_PATTERN_ARG_LENGTH = 500
-
-  /** Valid theory reference pattern (for referring to already-open theories). */
-  private val THEORY_REFERENCE_PATTERN = """^[A-Za-z0-9_.\-/]+$""".r
-
-  /** Valid new theory file name (single file name, no path separators). */
-  private val CREATE_THEORY_NAME_PATTERN = """^[A-Za-z][A-Za-z0-9_']*$""".r
-
-  /** Sanitize a string argument: trim, limit length, reject control characters.
-    */
-  private def safeStringArg(
-      args: ResponseParser.ToolArgs,
-      key: String,
-      maxLen: Int = MAX_STRING_ARG_LENGTH,
-      trim: Boolean = true
-  ): String = {
-    val raw = args.get(key).map(ResponseParser.toolValueToString).getOrElse("")
-    val cleaned = raw.filter(c => !c.isControl || c == '\n' || c == '\t')
-    val limited = cleaned.take(maxLen)
-    if (trim) limited.trim else limited
-  }
-
-  /** Validate a theory name argument. */
-  private def safeTheoryArg(
-      args: ResponseParser.ToolArgs
-  ): Either[String, String] = {
-    val name = safeStringArg(args, "theory", 200)
-    if (name.isEmpty) Left("Error: theory name required")
-    else if (THEORY_REFERENCE_PATTERN.findFirstIn(name).isEmpty)
-      Left(s"Error: invalid theory name '$name'")
-    else Right(name)
-  }
-
+  // Import argument utilities from ToolArgs module
+  import ToolArgs._
+  
+  // Re-export for backward compatibility with tests
   private[assistant] def isValidCreateTheoryName(name: String): Boolean =
-    CREATE_THEORY_NAME_PATTERN.findFirstIn(name).isDefined
-
-  private[assistant] def normalizeReadRange(
-      totalLines: Int,
-      requestedStart: Int,
-      requestedEnd: Int
-  ): (Int, Int) = {
-    if (totalLines <= 0) (1, 0)
-    else {
-      val start = math.max(1, math.min(totalLines, requestedStart))
-      val rawEnd = if (requestedEnd <= 0) totalLines else requestedEnd
-      val end = math.max(start, math.min(totalLines, rawEnd))
-      (start, end)
-    }
-  }
-
+    ToolArgs.isValidCreateTheoryName(name)
+  private[assistant] def normalizeReadRange(totalLines: Int, requestedStart: Int, requestedEnd: Int): (Int, Int) =
+    ToolArgs.normalizeReadRange(totalLines, requestedStart, requestedEnd)
   private[assistant] def clampOffset(offset: Int, bufferLength: Int): Int =
-    math.max(0, math.min(offset, bufferLength))
+    ToolArgs.clampOffset(offset, bufferLength)
 
   private val readToolsTimeoutMs: Long =
     AssistantConstants.CONTEXT_FETCH_TIMEOUT + AssistantConstants.TIMEOUT_BUFFER_MS
@@ -811,41 +761,6 @@ object AssistantTools {
   private def baseName(path: String): String =
     java.nio.file.Paths.get(path).getFileName.toString
 
-  private def optionalIntArg(args: ResponseParser.ToolArgs, key: String): Option[Int] =
-    args.get(key).map {
-      case ResponseParser.DecimalValue(d) if !d.isWhole =>
-        throw new IllegalArgumentException(
-          s"Parameter '$key' must be an integer, got decimal value: $d"
-        )
-      case ResponseParser.DecimalValue(d) => d.toInt
-      case ResponseParser.IntValue(i)     => i
-      case ResponseParser.StringValue(s) =>
-        scala.util.Try(s.toInt).getOrElse(
-          throw new IllegalArgumentException(
-            s"Parameter '$key' must be an integer, got: '$s'"
-          )
-        )
-      case ResponseParser.BooleanValue(_) | ResponseParser.JsonValue(_) =>
-        throw new IllegalArgumentException(
-          s"Parameter '$key' must be an integer"
-        )
-      case ResponseParser.NullValue =>
-        throw new IllegalArgumentException(
-          s"Parameter '$key' must be an integer"
-        )
-    }
-
-  private def boolArg(args: ResponseParser.ToolArgs, key: String, default: Boolean): Boolean =
-    args.get(key) match {
-      case Some(ResponseParser.BooleanValue(b)) => b
-      case Some(ResponseParser.StringValue(s)) => 
-        s.trim.toLowerCase match {
-          case "true" => true
-          case "false" => false
-          case _ => default
-        }
-      case _ => default
-    }
 
   private def snapshotViewState(view: View): Option[ViewStateSnapshot] =
     Option(view).flatMap { v =>
@@ -947,15 +862,10 @@ object AssistantTools {
         .mkString("\n")
   }
 
-  private def isSensitiveArgName(argName: String): Boolean = {
-    val lowered = argName.toLowerCase(Locale.ROOT)
-    AssistantConstants.SENSITIVE_ARG_TOKENS.exists(token => lowered.contains(token))
-  }
-
   private def summarizeToolArgsForLog(args: ResponseParser.ToolArgs): String =
     args.map { case (k, v) =>
       val rendered =
-        if (isSensitiveArgName(k)) "***"
+        if (ToolArgs.isSensitiveArgName(k)) "***"
         else ResponseParser.toolValueToDisplay(v).replace('\n', ' ').take(100)
       s"$k=$rendered"
     }.mkString(", ")
@@ -1071,63 +981,55 @@ object AssistantTools {
       args: ResponseParser.ToolArgs,
       @unused view: View
   ): String = {
-    safeTheoryArg(args) match {
-      case Left(err)     => err
-      case Right(theory) =>
-        val start = optionalIntArg(args, "start_line")
-        val end = optionalIntArg(args, "end_line")
-        val maxLines = optionalIntArg(args, "max_lines")
-          .map(n => math.max(1, math.min(n, 10000)))
-          .getOrElse(AssistantConstants.DEFAULT_READ_THEORY_MAX_LINES)
+    val start = optionalIntArg(args, "start_line")
+    val end = optionalIntArg(args, "end_line")
+    val maxLines = optionalIntArg(args, "max_lines")
+      .map(n => math.max(1, math.min(n, 10000)))
+      .getOrElse(AssistantConstants.DEFAULT_READ_THEORY_MAX_LINES)
+    
+    val result = for {
+      theory <- safeTheoryArg(args)
+      path <- resolveTheoryPath(theory)
+      numberedContent <- IQMcpClient.callReadFileLine(
+        path = path,
+        startLine = start.orElse(Some(1)),
+        endLine = end,
+        timeoutMs = readToolsTimeoutMs
+      ).left.map(e => s"Error: $e")
+    } yield {
+      if (numberedContent.trim.isEmpty) s"Theory ${theory} is empty."
+      else {
+        val totalLines = lineCountFromNumberedContent(numberedContent)
+        val lines = numberedContent.linesIterator.toList
         
-        resolveTheoryPath(theory).fold(
-          err => err,
-          path =>
-            IQMcpClient
-              .callReadFileLine(
-                path = path,
-                startLine = start.orElse(Some(1)),
-                endLine = end,
-                timeoutMs = readToolsTimeoutMs
-              )
-              .fold(
-                mcpErr => s"Error: $mcpErr",
-                numberedContent => {
-                  if (numberedContent.trim.isEmpty) s"Theory $theory is empty."
-                  else {
-                    val totalLines = lineCountFromNumberedContent(numberedContent)
-                    val lines = numberedContent.linesIterator.toList
-                    
-                    // Apply truncation if needed and not using explicit range
-                    val (displayLines, wasTruncated) = if (start.isEmpty && end.isEmpty && lines.length > maxLines) {
-                      (lines.take(maxLines), true)
-                    } else {
-                      (lines, false)
-                    }
-                    
-                    val content = displayLines.mkString("\n")
-                    val header = s"Theory $theory ($totalLines lines)"
-                    val rangeInfo = if (start.isDefined || end.isDefined) {
-                      val actualStart = start.getOrElse(1)
-                      val actualEnd = end.getOrElse(totalLines)
-                      s", showing lines $actualStart-$actualEnd"
-                    } else if (wasTruncated) {
-                      s", showing lines 1-$maxLines"
-                    } else {
-                      ""
-                    }
-                    
-                    val truncationNote = if (wasTruncated) {
-                      val remaining = totalLines - maxLines
-                      s"\n\n... [truncated, $remaining more lines. Use start_line/end_line to read specific ranges]"
-                    } else ""
-                    
-                    s"$header$rangeInfo:\n$content$truncationNote"
-                  }
-                }
-              )
-        )
+        // Apply truncation if needed and not using explicit range
+        val (displayLines, wasTruncated) = if (start.isEmpty && end.isEmpty && lines.length > maxLines) {
+          (lines.take(maxLines), true)
+        } else {
+          (lines, false)
+        }
+        
+        val content = displayLines.mkString("\n")
+        val header = s"Theory $theory ($totalLines lines)"
+        val rangeInfo = if (start.isDefined || end.isDefined) {
+          val actualStart = start.getOrElse(1)
+          val actualEnd = end.getOrElse(totalLines)
+          s", showing lines $actualStart-$actualEnd"
+        } else if (wasTruncated) {
+          s", showing lines 1-$maxLines"
+        } else {
+          ""
+        }
+        
+        val truncationNote = if (wasTruncated) {
+          val remaining = totalLines - maxLines
+          s"\n\n... [truncated, $remaining more lines. Use start_line/end_line to read specific ranges]"
+        } else ""
+        
+        s"$header$rangeInfo:\n$content$truncationNote"
+      }
     }
+    result.merge
   }
 
   /** List all open theory files via I/Q MCP. Returns newline-separated theory names. */
@@ -1154,40 +1056,33 @@ object AssistantTools {
       @unused view: View
   ): String = {
     val pattern = safeStringArg(args, "pattern", MAX_PATTERN_ARG_LENGTH)
-    safeTheoryArg(args) match {
-      case Left(err)     => err
-      case Right(theory) =>
-        if (pattern.isEmpty) "Error: pattern required"
-        else {
-          val max = math.min(
-            AssistantConstants.MAX_SEARCH_RESULTS,
-            math.max(1, intArg(args, "max_results", 20))
-          )
-          resolveTheoryPath(theory).fold(
-            err => err,
-            path =>
-              IQMcpClient
-                .callReadFileSearch(
-                  path = path,
-                  pattern = pattern,
-                  contextLines = 0,
-                  timeoutMs = readToolsTimeoutMs
-                )
-                .fold(
-                  mcpErr => s"Error: $mcpErr",
-                  matches => {
-                    val shown = matches.take(max)
-                    if (shown.isEmpty) s"No matches for '$pattern' in $theory."
-                    else
-                      shown
-                        .map(m =>
-                          s"${m.lineNumber}: ${firstHighlightedOrFirstLine(m.context)}"
-                        )
-                        .mkString("\n")
-                  }
-                )
-          )
-        }
+    if (pattern.isEmpty) "Error: pattern required"
+    else {
+      val max = math.min(
+        AssistantConstants.MAX_SEARCH_RESULTS,
+        math.max(1, intArg(args, "max_results", 20))
+      )
+      
+      val result = for {
+        theory <- safeTheoryArg(args)
+        path <- resolveTheoryPath(theory)
+        matches <- IQMcpClient.callReadFileSearch(
+          path = path,
+          pattern = pattern,
+          contextLines = 0,
+          timeoutMs = readToolsTimeoutMs
+        ).left.map(e => s"Error: $e")
+      } yield {
+        val shown = matches.take(max)
+        if (shown.isEmpty) s"No matches for '$pattern' in $theory."
+        else
+          shown
+            .map(m =>
+              s"${m.lineNumber}: ${firstHighlightedOrFirstLine(m.context)}"
+            )
+            .mkString("\n")
+      }
+      result.merge
     }
   }
 
@@ -1603,27 +1498,19 @@ object AssistantTools {
       args: ResponseParser.ToolArgs,
       @unused view: View
   ): String = {
-    safeTheoryArg(args) match {
-      case Left(err) => err
-      case Right(theory) =>
-        if (!IQAvailable.isAvailable) "I/Q plugin not available."
-        else {
-          resolveTheoryPath(theory).fold(
-            err => err,
-            path =>
-              IQMcpClient
-                .callGetFileStats(path, readToolsTimeoutMs)
-                .fold(
-                  mcpErr => s"Error: $mcpErr",
-                  stats => {
-                    val processedStatus = if (stats.fullyProcessed) "fully processed" else "processing"
-                    val errorStatus = if (stats.hasErrors) s", ${stats.errorCount} errors" else ", no errors"
-                    val warningStatus = if (stats.warningCount > 0) s", ${stats.warningCount} warnings" else ""
-                    s"$theory: ${stats.lineCount} lines, ${stats.entityCount} entities, $processedStatus$errorStatus$warningStatus"
-                  }
-                )
-          )
-        }
+    if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    else {
+      val result = for {
+        theory <- safeTheoryArg(args)
+        path <- resolveTheoryPath(theory)
+        stats <- IQMcpClient.callGetFileStats(path, readToolsTimeoutMs).left.map(e => s"Error: $e")
+      } yield {
+        val processedStatus = if (stats.fullyProcessed) "fully processed" else "processing"
+        val errorStatus = if (stats.hasErrors) s", ${stats.errorCount} errors" else ", no errors"
+        val warningStatus = if (stats.warningCount > 0) s", ${stats.warningCount} warnings" else ""
+        s"$theory: ${stats.lineCount} lines, ${stats.entityCount} entities, $processedStatus$errorStatus$warningStatus"
+      }
+      result.merge
     }
   }
 
@@ -1632,33 +1519,25 @@ object AssistantTools {
       args: ResponseParser.ToolArgs,
       @unused view: View
   ): String = {
-    safeTheoryArg(args) match {
-      case Left(err) => err
-      case Right(theory) =>
-        if (!IQAvailable.isAvailable) "I/Q plugin not available."
-        else {
-          resolveTheoryPath(theory).fold(
-            err => err,
-            path =>
-              IQMcpClient
-                .callGetProcessingStatus(path, readToolsTimeoutMs)
-                .fold(
-                  mcpErr => s"Error: $mcpErr",
-                  status => {
-                    val processedLabel = if (status.fullyProcessed) "Fully processed" else "Processing"
-                    val parts = List(
-                      s"$processedLabel",
-                      s"unprocessed: ${status.unprocessed}",
-                      s"running: ${status.running}",
-                      s"finished: ${status.finished}",
-                      s"failed: ${status.failed}",
-                      s"consolidated: ${status.consolidated}"
-                    )
-                    parts.mkString("\n")
-                  }
-                )
-          )
-        }
+    if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    else {
+      val result = for {
+        theory <- safeTheoryArg(args)
+        path <- resolveTheoryPath(theory)
+        status <- IQMcpClient.callGetProcessingStatus(path, readToolsTimeoutMs).left.map(e => s"Error: $e")
+      } yield {
+        val processedLabel = if (status.fullyProcessed) "Fully processed" else "Processing"
+        val parts = List(
+          s"$processedLabel",
+          s"unprocessed: ${status.unprocessed}",
+          s"running: ${status.running}",
+          s"finished: ${status.finished}",
+          s"failed: ${status.failed}",
+          s"consolidated: ${status.consolidated}"
+        )
+        parts.mkString("\n")
+      }
+      result.merge
     }
   }
 
@@ -1667,30 +1546,22 @@ object AssistantTools {
       args: ResponseParser.ToolArgs,
       @unused view: View
   ): String = {
-    safeTheoryArg(args) match {
-      case Left(err) => err
-      case Right(theory) =>
-        if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    if (!IQAvailable.isAvailable) "I/Q plugin not available."
+    else {
+      val result = for {
+        theory <- safeTheoryArg(args)
+        path <- resolveTheoryPath(theory)
+        sorryResult <- IQMcpClient.callGetSorryPositions(path, readToolsTimeoutMs).left.map(e => s"Error: $e")
+      } yield {
+        if (sorryResult.count == 0) s"No sorry/oops commands in $theory."
         else {
-          resolveTheoryPath(theory).fold(
-            err => err,
-            path =>
-              IQMcpClient
-                .callGetSorryPositions(path, readToolsTimeoutMs)
-                .fold(
-                  mcpErr => s"Error: $mcpErr",
-                  result => {
-                    if (result.count == 0) s"No sorry/oops commands in $theory."
-                    else {
-                      val lines = result.positions.map { pos =>
-                        s"Line ${pos.line}: ${pos.keyword} in ${pos.inProof}"
-                      }
-                      s"Found ${result.count} sorry/oops command${if (result.count == 1) "" else "s"} in $theory:\n${lines.mkString("\n")}"
-                    }
-                  }
-                )
-          )
+          val lines = sorryResult.positions.map { pos =>
+            s"Line ${pos.line}: ${pos.keyword} in ${pos.inProof}"
+          }
+          s"Found ${sorryResult.count} sorry/oops command${if (sorryResult.count == 1) "" else "s"} in $theory:\n${lines.mkString("\n")}"
         }
+      }
+      result.merge
     }
   }
 
@@ -2040,38 +1911,30 @@ object AssistantTools {
       args: ResponseParser.ToolArgs,
       @unused view: View
   ): String = {
-    safeTheoryArg(args) match {
-      case Left(err)     => err
-      case Right(theory) =>
-        resolveTheoryPath(theory).fold(
-          err => err,
-          path =>
-            IQMcpClient
-              .callReadFileLine(
-                path = path,
-                startLine = Some(1),
-                endLine = Some(-1),
-                timeoutMs = readToolsTimeoutMs
-              )
-              .fold(
-                mcpErr => s"Error: $mcpErr",
-                numberedContent => {
-                  val content = stripNumberPrefixes(numberedContent)
-                  val importPattern = """(?s)imports\s+(.*?)(?:\bbegin\b|\z)""".r
-                  importPattern.findFirstMatchIn(content) match {
-                    case Some(m) =>
-                      val tokenPattern = """"[^"]+"|[^\s"]+""".r
-                      val imports =
-                        tokenPattern.findAllIn(m.group(1)).toList.filter(_.nonEmpty)
-                      if (imports.nonEmpty)
-                        s"Dependencies of $theory:\n${imports.mkString("\n")}"
-                      else s"Theory '$theory' has no explicit imports."
-                    case None => s"No imports found in theory '$theory'."
-                  }
-                }
-              )
-        )
+    val result = for {
+      theory <- safeTheoryArg(args)
+      path <- resolveTheoryPath(theory)
+      numberedContent <- IQMcpClient.callReadFileLine(
+        path = path,
+        startLine = Some(1),
+        endLine = Some(-1),
+        timeoutMs = readToolsTimeoutMs
+      ).left.map(e => s"Error: $e")
+    } yield {
+      val content = stripNumberPrefixes(numberedContent)
+      val importPattern = """(?s)imports\s+(.*?)(?:\bbegin\b|\z)""".r
+      importPattern.findFirstMatchIn(content) match {
+        case Some(m) =>
+          val tokenPattern = """"[^"]+"|[^\s"]+""".r
+          val imports =
+            tokenPattern.findAllIn(m.group(1)).toList.filter(_.nonEmpty)
+          if (imports.nonEmpty)
+            s"Dependencies of $theory:\n${imports.mkString("\n")}"
+          else s"Theory '$theory' has no explicit imports."
+        case None => s"No imports found in theory '$theory'."
+      }
     }
+    result.merge
   }
 
   /** Get warning messages from PIDE. Delegates to execGetDiagnostics with Warning severity. */
@@ -2168,7 +2031,92 @@ object AssistantTools {
     }
   }
 
-  /** Get all diagnostics (both errors and warnings) for "all" severity mode. */
+  /** Combined diagnostics result (errors + warnings). */
+  private case class CombinedDiagnostics(
+      errorCount: Int,
+      warningCount: Int,
+      errors: List[IQMcpClient.DiagnosticEntry],
+      warnings: List[IQMcpClient.DiagnosticEntry]
+  )
+
+  /** Fetch both error and warning diagnostics in parallel.
+    * Shared helper for execGetDiagnosticsAll to eliminate code duplication.
+    * 
+    * @param scope Diagnostic scope (Selection or File)
+    * @param timeoutMs Timeout in milliseconds
+    * @param selectionArgs Selection arguments for Selection scope
+    * @param path File path for File scope
+    * @return Combined diagnostics with error and warning counts and entries
+    */
+  private def fetchBothDiagnostics(
+      scope: IQMcpClient.DiagnosticScope,
+      timeoutMs: Long,
+      selectionArgs: Map[String, Any] = Map.empty,
+      path: Option[String] = None
+  ): CombinedDiagnostics = {
+    val latch = new CountDownLatch(2)
+    @volatile var errorResult: Option[IQMcpClient.DiagnosticsResult] = None
+    @volatile var warningResult: Option[IQMcpClient.DiagnosticsResult] = None
+
+    // Fork error diagnostics fetch
+    val _ = Isabelle_Thread.fork(name = "get-errors") {
+      errorResult = IQMcpClient.callGetDiagnostics(
+        severity = IQMcpClient.DiagnosticSeverity.Error,
+        scope = scope,
+        timeoutMs = timeoutMs,
+        selectionArgs = selectionArgs,
+        path = path
+      ).toOption
+      latch.countDown()
+    }
+    
+    // Fork warning diagnostics fetch
+    val _ = Isabelle_Thread.fork(name = "get-warnings") {
+      warningResult = IQMcpClient.callGetDiagnostics(
+        severity = IQMcpClient.DiagnosticSeverity.Warning,
+        scope = scope,
+        timeoutMs = timeoutMs,
+        selectionArgs = selectionArgs,
+        path = path
+      ).toOption
+      latch.countDown()
+    }
+    
+    // Wait for both to complete
+    val _ = latch.await(timeoutMs * 2 + 1000, TimeUnit.MILLISECONDS)
+    
+    CombinedDiagnostics(
+      errorCount = errorResult.map(_.count).getOrElse(0),
+      warningCount = warningResult.map(_.count).getOrElse(0),
+      errors = errorResult.toList.flatMap(_.diagnostics),
+      warnings = warningResult.toList.flatMap(_.diagnostics)
+    )
+  }
+
+  /** Format combined diagnostics output (either count-only or full messages).
+    * 
+    * @param combined Combined diagnostics result
+    * @param countOnly If true, return only counts; if false, return full messages
+    * @param scopeLabel Human-readable scope description (e.g., "at cursor", "in current buffer")
+    * @return Formatted output string
+    */
+  private def formatCombinedDiagnostics(
+      combined: CombinedDiagnostics,
+      countOnly: Boolean,
+      scopeLabel: String
+  ): String = {
+    if (countOnly) {
+      s"${combined.errorCount} errors, ${combined.warningCount} warnings $scopeLabel"
+    } else {
+      val all = (combined.errors ++ combined.warnings).sortBy(_.line)
+      if (all.isEmpty) s"No errors or warnings $scopeLabel."
+      else all.map(d => s"Line ${d.line}: ${d.message}").mkString("\n")
+    }
+  }
+
+  /** Get all diagnostics (both errors and warnings) for "all" severity mode.
+    * Refactored to use shared fetchBothDiagnostics and formatCombinedDiagnostics helpers.
+    */
   private def execGetDiagnosticsAll(
       args: ResponseParser.ToolArgs,
       view: View,
@@ -2180,133 +2128,36 @@ object AssistantTools {
 
     effectiveScope.toLowerCase match {
       case "cursor" =>
-        val latch = new CountDownLatch(2)
-        @volatile var errorResult: Option[IQMcpClient.DiagnosticsResult] = None
-        @volatile var warningResult: Option[IQMcpClient.DiagnosticsResult] = None
-        val selectionArgs = selectionArgsForCurrentView(view)
-        
-        val _ = Isabelle_Thread.fork(name = "get-errors") {
-          errorResult = IQMcpClient.callGetDiagnostics(
-            severity = IQMcpClient.DiagnosticSeverity.Error,
-            scope = IQMcpClient.DiagnosticScope.Selection,
-            timeoutMs = timeoutMs,
-            selectionArgs = selectionArgs
-          ).toOption
-          latch.countDown()
-        }
-        
-        val _ = Isabelle_Thread.fork(name = "get-warnings") {
-          warningResult = IQMcpClient.callGetDiagnostics(
-            severity = IQMcpClient.DiagnosticSeverity.Warning,
-            scope = IQMcpClient.DiagnosticScope.Selection,
-            timeoutMs = timeoutMs,
-            selectionArgs = selectionArgs
-          ).toOption
-          latch.countDown()
-        }
-        
-        val _ = latch.await(timeoutMs * 2 + 1000, TimeUnit.MILLISECONDS)
-        
-        val errorCount = errorResult.map(_.count).getOrElse(0)
-        val warningCount = warningResult.map(_.count).getOrElse(0)
-        
-        if (countOnly) {
-          s"$errorCount errors, $warningCount warnings at cursor"
-        } else {
-          val errors = errorResult.toList.flatMap(_.diagnostics)
-          val warnings = warningResult.toList.flatMap(_.diagnostics)
-          val combined = (errors ++ warnings).sortBy(_.line)
-          if (combined.isEmpty) "No errors or warnings at cursor position."
-          else combined.map(d => s"Line ${d.line}: ${d.message}").mkString("\n")
-        }
+        val combined = fetchBothDiagnostics(
+          scope = IQMcpClient.DiagnosticScope.Selection,
+          timeoutMs = timeoutMs,
+          selectionArgs = selectionArgsForCurrentView(view)
+        )
+        formatCombinedDiagnostics(combined, countOnly, "at cursor")
 
       case "all" =>
         currentBufferPath(view).fold(
-          err => err,
+          identity,
           path => {
-            val latch = new CountDownLatch(2)
-            @volatile var errorResult: Option[IQMcpClient.DiagnosticsResult] = None
-            @volatile var warningResult: Option[IQMcpClient.DiagnosticsResult] = None
-            
-            val _ = Isabelle_Thread.fork(name = "get-errors") {
-              errorResult = IQMcpClient.callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Error,
-                scope = IQMcpClient.DiagnosticScope.File,
-                timeoutMs = timeoutMs,
-                path = Some(path)
-              ).toOption
-              latch.countDown()
-            }
-            
-            val _ = Isabelle_Thread.fork(name = "get-warnings") {
-              warningResult = IQMcpClient.callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Warning,
-                scope = IQMcpClient.DiagnosticScope.File,
-                timeoutMs = timeoutMs,
-                path = Some(path)
-              ).toOption
-              latch.countDown()
-            }
-            
-            val _ = latch.await(timeoutMs * 2 + 1000, TimeUnit.MILLISECONDS)
-            
-            val errorCount = errorResult.map(_.count).getOrElse(0)
-            val warningCount = warningResult.map(_.count).getOrElse(0)
-            
-            if (countOnly) {
-              s"$errorCount errors, $warningCount warnings in current buffer"
-            } else {
-              val errors = errorResult.toList.flatMap(_.diagnostics)
-              val warnings = warningResult.toList.flatMap(_.diagnostics)
-              val combined = (errors ++ warnings).sortBy(_.line)
-              if (combined.isEmpty) "No errors or warnings in current buffer."
-              else combined.map(d => s"Line ${d.line}: ${d.message}").mkString("\n")
-            }
+            val combined = fetchBothDiagnostics(
+              scope = IQMcpClient.DiagnosticScope.File,
+              timeoutMs = timeoutMs,
+              path = Some(path)
+            )
+            formatCombinedDiagnostics(combined, countOnly, "in current buffer")
           }
         )
 
       case _ =>
         resolveTheoryPath(effectiveScope).fold(
-          err => err,
+          identity,
           path => {
-            val latch = new CountDownLatch(2)
-            @volatile var errorResult: Option[IQMcpClient.DiagnosticsResult] = None
-            @volatile var warningResult: Option[IQMcpClient.DiagnosticsResult] = None
-            
-            val _ = Isabelle_Thread.fork(name = "get-errors") {
-              errorResult = IQMcpClient.callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Error,
-                scope = IQMcpClient.DiagnosticScope.File,
-                timeoutMs = timeoutMs,
-                path = Some(path)
-              ).toOption
-              latch.countDown()
-            }
-            
-            val _ = Isabelle_Thread.fork(name = "get-warnings") {
-              warningResult = IQMcpClient.callGetDiagnostics(
-                severity = IQMcpClient.DiagnosticSeverity.Warning,
-                scope = IQMcpClient.DiagnosticScope.File,
-                timeoutMs = timeoutMs,
-                path = Some(path)
-              ).toOption
-              latch.countDown()
-            }
-            
-            val _ = latch.await(timeoutMs * 2 + 1000, TimeUnit.MILLISECONDS)
-            
-            val errorCount = errorResult.map(_.count).getOrElse(0)
-            val warningCount = warningResult.map(_.count).getOrElse(0)
-            
-            if (countOnly) {
-              s"$errorCount errors, $warningCount warnings in theory '$effectiveScope'"
-            } else {
-              val errors = errorResult.toList.flatMap(_.diagnostics)
-              val warnings = warningResult.toList.flatMap(_.diagnostics)
-              val combined = (errors ++ warnings).sortBy(_.line)
-              if (combined.isEmpty) s"No errors or warnings in theory '$effectiveScope'."
-              else combined.map(d => s"Line ${d.line}: ${d.message}").mkString("\n")
-            }
+            val combined = fetchBothDiagnostics(
+              scope = IQMcpClient.DiagnosticScope.File,
+              timeoutMs = timeoutMs,
+              path = Some(path)
+            )
+            formatCombinedDiagnostics(combined, countOnly, s"in theory '$effectiveScope'")
           }
         )
     }
@@ -2535,39 +2386,32 @@ object AssistantTools {
       args: ResponseParser.ToolArgs,
       @unused view: View
   ): String = {
-    safeTheoryArg(args) match {
-      case Left(err)     => err
-      case Right(theory) =>
-        val maxResultsRaw = intArg(args, "max_results", AssistantConstants.DEFAULT_GET_ENTITIES_MAX_RESULTS)
-        val maxResults = math.max(1, math.min(1000, maxResultsRaw))
-        resolveTheoryPath(theory).fold(
-          err => err,
-          path =>
-            IQMcpClient
-              .callGetEntities(
-                path = path,
-                maxResults = Some(maxResults),
-                timeoutMs = AssistantConstants.CONTEXT_FETCH_TIMEOUT
-              )
-              .fold(
-                mcpErr => s"Error: $mcpErr",
-                entitiesResult => {
-                  if (entitiesResult.entities.isEmpty)
-                    "No entities found in theory."
-                  else {
-                    val lines = entitiesResult.entities.map { entity =>
-                      s"Line ${entity.line}: ${entity.keyword} ${entity.name}"
-                    }
-                    val suffix =
-                      if (entitiesResult.truncated)
-                        s"\n\nResults truncated to ${entitiesResult.returnedEntities} of ${entitiesResult.totalEntities} entities."
-                      else ""
-                    lines.mkString("\n") + suffix
-                  }
-                }
-              )
-        )
+    val maxResultsRaw = intArg(args, "max_results", AssistantConstants.DEFAULT_GET_ENTITIES_MAX_RESULTS)
+    val maxResults = math.max(1, math.min(1000, maxResultsRaw))
+    
+    val result = for {
+      theory <- safeTheoryArg(args)
+      path <- resolveTheoryPath(theory)
+      entitiesResult <- IQMcpClient.callGetEntities(
+        path = path,
+        maxResults = Some(maxResults),
+        timeoutMs = AssistantConstants.CONTEXT_FETCH_TIMEOUT
+      ).left.map(e => s"Error: $e")
+    } yield {
+      if (entitiesResult.entities.isEmpty)
+        "No entities found in theory."
+      else {
+        val lines = entitiesResult.entities.map { entity =>
+          s"Line ${entity.line}: ${entity.keyword} ${entity.name}"
+        }
+        val suffix =
+          if (entitiesResult.truncated)
+            s"\n\nResults truncated to ${entitiesResult.returnedEntities} of ${entitiesResult.totalEntities} entities."
+          else ""
+        lines.mkString("\n") + suffix
+      }
     }
+    result.merge
   }
 
   /** Create new theory file in current directory via I/Q MCP open_file. Returns confirmation or error. */
@@ -2850,9 +2694,4 @@ object AssistantTools {
       onChoice: String => Unit
   ): String = WidgetRenderer.askUser(question, context, options, onChoice)
 
-  private def intArg(
-      args: ResponseParser.ToolArgs,
-      key: String,
-      default: Int
-  ): Int = optionalIntArg(args, key).getOrElse(default)
 }

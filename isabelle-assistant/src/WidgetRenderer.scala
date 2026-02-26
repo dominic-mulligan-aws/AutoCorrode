@@ -9,7 +9,16 @@ package isabelle.assistant
  */
 object WidgetRenderer {
 
-  /** Render HTML for a newly added task notification. */
+  /** Render HTML widget for a newly added task notification.
+    * 
+    * Displays a compact card showing the task title with truncated description
+    * and acceptance criteria. Used when the LLM calls task_list_add.
+    * 
+    * @param title Task title (max displayed: full)
+    * @param description Task description (truncated to 100 chars for display)
+    * @param criteria Acceptance criteria (truncated to 100 chars for display)
+    * @return HTML string for injection into chat as a Widget message
+    */
   def taskAdded(
       title: String,
       description: String,
@@ -38,7 +47,17 @@ object WidgetRenderer {
        |</div>""".stripMargin
   }
 
-  /** Render HTML for a task status change (done/irrelevant). */
+  /** Render HTML widget for a task status change (done/irrelevant).
+    * 
+    * Shows a status update card with the task title, new status icon, and
+    * overall progress summary. Used when the LLM calls task_list_done or
+    * task_list_irrelevant.
+    * 
+    * @param taskId ID of the task that changed status
+    * @param status New status: "done" or "irrelevant"
+    * @param result Status message returned by TaskList operation
+    * @return HTML string for injection into chat as a Widget message
+    */
   def taskStatus(taskId: Int, status: String, result: String): String = {
     val border = UIColors.TaskList.border
     val bg = UIColors.TaskList.background
@@ -72,7 +91,15 @@ object WidgetRenderer {
     }
   }
 
-  /** Render HTML for the full task list display. */
+  /** Render HTML widget showing the full task list as a checklist.
+    * 
+    * Displays all tasks with status icons (✓ done, ○ pending, ✗ irrelevant, ● next).
+    * Used when the LLM calls task_list_show or task_list_next.
+    * 
+    * @param highlightNext If true, visually emphasizes the next pending task with
+    *                      a filled circle (●) and "← next" marker
+    * @return HTML string for injection into chat as a Widget message
+    */
   def taskList(highlightNext: Boolean): String = {
     val border = UIColors.TaskList.border
     val bg = UIColors.TaskList.background
@@ -134,7 +161,14 @@ object WidgetRenderer {
        |</div>""".stripMargin
   }
 
-  /** Render HTML for detailed task information. */
+  /** Render HTML widget showing detailed information for a specific task.
+    * 
+    * Displays full task title, description, acceptance criteria, and status icon.
+    * Used when the LLM calls task_list_get.
+    * 
+    * @param task The task to display details for
+    * @return HTML string for injection into chat as a Widget message
+    */
   def taskDetail(task: TaskList.Task): String = {
     val border = UIColors.TaskList.border
     val bg = UIColors.TaskList.background

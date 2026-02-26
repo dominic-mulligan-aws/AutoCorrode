@@ -159,12 +159,12 @@ object BedrockClient {
 
   private val currentViewTL = new ThreadLocal[org.gjt.sp.jedit.View]()
 
-  private enum BedrockRole(val wireValue: String) {
+  private[assistant] enum BedrockRole(val wireValue: String) {
     case User extends BedrockRole("user")
     case Assistant extends BedrockRole("assistant")
   }
 
-  private object BedrockRole {
+  private[assistant] object BedrockRole {
     def fromWire(value: String): Option[BedrockRole] = value match {
       case "user"      => Some(User)
       case "assistant" => Some(Assistant)
@@ -172,7 +172,7 @@ object BedrockClient {
     }
   }
 
-  private case class ChatTurn(role: BedrockRole, content: String)
+  private[assistant] case class ChatTurn(role: BedrockRole, content: String)
 
   private def toTurns(messages: List[(String, String)]): List[ChatTurn] = {
     val (valid, dropped) = messages.foldLeft((List.empty[ChatTurn], 0)) {
@@ -556,17 +556,46 @@ object BedrockClient {
     initialMessages: List[ChatTurn],
     temperature: Double, maxTokens: Int
   ): String = {
+    invokeChatWithToolsTestable(
+      modelId, systemPrompt, initialMessages, temperature, maxTokens,
+      request => getClient.invokeModel(request).body().asUtf8String(),
+      (toolName, args) => {
+        val view = Option(currentViewTL.get())
+          .orElse(Option(org.gjt.sp.jedit.jEdit.getActiveView))
+          .getOrElse(throw new RuntimeException("No view available for tool execution"))
+        AssistantTools.executeToolWithPermission(toolName, args, view)
+      }
+    )
+  }
+
+  /**
+   * Testable version of the agentic tool-use loop.
+   * Accepts function parameters for API calls and tool execution, enabling mock-based testing.
+   * 
+   * @param modelId The Bedrock model ID
+   * @param systemPrompt System prompt for the conversation
+   * @param initialMessages Initial message history
+   * @param temperature Sampling temperature
+   * @param maxTokens Maximum tokens to generate
+   * @param invoker Function that takes an InvokeModelRequest and returns the response JSON
+   * @param toolExecutor Function that takes (toolName, args) and returns the result string
+   * @return The final text response from the model
+   */
+  private[assistant] def invokeChatWithToolsTestable(
+    modelId: String,
+    systemPrompt: String,
+    initialMessages: List[ChatTurn],
+    temperature: Double, maxTokens: Int,
+    invoker: InvokeModelRequest => String,
+    toolExecutor: (String, ResponseParser.ToolArgs) => String
+  ): String = {
     val maxIter = AssistantOptions.getMaxToolIterations
-    // Build structured message list: each entry is (role, json_content_string)
-    // For simple text messages, content is just the string.
-    // For tool results, content is a JSON array of tool_result blocks.
     val msgBuf = scala.collection.mutable.ListBuffer[ChatTurn]()
     msgBuf ++= initialMessages
 
     var iteration = 0
     val textParts = scala.collection.mutable.ListBuffer[String]()
     var continue = true
-    // Improved stuck-loop detection: track last 6 tool calls (window of 6)
     val recentCalls = scala.collection.mutable.Queue[String]()
     val LOOP_DETECTION_WINDOW = 6
 
@@ -575,20 +604,18 @@ object BedrockClient {
       if (AssistantDockable.isCancelled) throw new RuntimeException("Operation cancelled")
       pruneToolLoopMessagesInPlace(msgBuf, AssistantConstants.MAX_CHAT_CONTEXT_CHARS)
 
-      // Check if we've hit the iteration limit
       val hitLimit = maxIter match {
         case Some(limit) => iteration > limit
         case None => false
       }
       if (hitLimit) {
-        // Send a message to the model informing it we've hit the limit
-        Output.warning(s"[Assistant] Hit max tool iteration limit ($iteration iterations)")
+        try { Output.warning(s"[Assistant] Hit max tool iteration limit ($iteration iterations)") }
+        catch { case _: Exception | _: LinkageError => () }
         msgBuf += ChatTurn(
           BedrockRole.User,
           "You have reached the maximum tool iteration limit. Please provide a summary of what you've learned and any conclusions you can make without additional tool calls."
         )
         
-        // Make one final call to get the model's summary
         val payload = PayloadBuilder.buildAnthropicToolPayload(
           systemPrompt,
           fromTurns(msgBuf.toList),
@@ -602,14 +629,14 @@ object BedrockClient {
         
         enforceRateLimit()
         try {
-          val response = getClient.invokeModel(request)
-          val responseJson = response.body().asUtf8String()
+          val responseJson = invoker(request)
           val (blocks, _) = ResponseParser.parseAnthropicContentBlocks(responseJson)
           val summaryText = blocks.collect { case ResponseParser.TextBlock(t) => t }
           if (summaryText.nonEmpty) textParts ++= summaryText
         } catch {
           case ex: Exception => 
-            Output.warning(s"[Assistant] Final summary call failed: ${ex.getMessage}")
+            try { Output.warning(s"[Assistant] Final summary call failed: ${ex.getMessage}") }
+            catch { case _: Exception | _: LinkageError => () }
         }
         continue = false
       } else {
@@ -625,8 +652,7 @@ object BedrockClient {
           .build()
 
         enforceRateLimit()
-        val response = getClient.invokeModel(request)
-        val responseJson = response.body().asUtf8String()
+        val responseJson = invoker(request)
         val (blocks, stopReason) = ResponseParser.parseAnthropicContentBlocks(responseJson)
 
         // Collect text from this response
@@ -644,9 +670,6 @@ object BedrockClient {
           msgBuf += ChatTurn(BedrockRole.Assistant, rawContentJson(blocks))
 
           // Execute each tool and build tool_result message
-          val view = Option(currentViewTL.get())
-            .orElse(Option(org.gjt.sp.jedit.jEdit.getActiveView))
-            .getOrElse(throw new RuntimeException("No view available for tool execution"))
           val iterStr = maxIter.map(_.toString).getOrElse("∞")
           val resultBlocks = toolUses.map { tu =>
             // Enhanced stuck-loop detection: track tool name + ALL input params
@@ -662,7 +685,8 @@ object BedrockClient {
             
             // Check for exact repetition (3+ identical calls in window)
             if (recentCalls.length >= 3 && recentCalls.takeRight(3).distinct.size == 1) {
-              Output.warning(s"[Assistant] Detected stuck loop: same tool call '${recentCalls.last}' repeated 3+ times")
+              try { Output.warning(s"[Assistant] Detected stuck loop: same tool call '${recentCalls.last}' repeated 3+ times") }
+              catch { case _: Exception | _: LinkageError => () }
               throw new RuntimeException(s"Stuck in loop: tool '${tu.name}' called repeatedly with identical arguments and no progress. Try a different approach.")
             }
             
@@ -670,25 +694,32 @@ object BedrockClient {
             if (recentCalls.length >= 4) {
               val last4 = recentCalls.takeRight(4).toList
               if (last4(0) == last4(2) && last4(1) == last4(3)) {
-                Output.warning(s"[Assistant] Detected alternating loop: ${last4(0)} <-> ${last4(1)}")
+                try { Output.warning(s"[Assistant] Detected alternating loop: ${last4(0)} <-> ${last4(1)}") }
+                catch { case _: Exception | _: LinkageError => () }
                 throw new RuntimeException(s"Stuck in alternating loop between two tool calls with no progress. Try a different approach.")
               }
             }
             
-            Output.writeln(s"[Assistant] Tool use ($iteration/$iterStr): ${tu.name}")
-            AssistantDockable.setStatus(s"[tool] ${tu.name} ($iteration/$iterStr)...")
+            try { Output.writeln(s"[Assistant] Tool use ($iteration/$iterStr): ${tu.name}") }
+            catch { case _: Exception | _: LinkageError => () }
+            try { AssistantDockable.setStatus(s"[tool] ${tu.name} ($iteration/$iterStr)...") }
+            catch { case _: Exception | _: LinkageError => () }
             // Add tool message to chat UI (skip for task list tools since they inject their own widgets)
             if (!tu.name.startsWith("task_list_")) {
-              GUI_Thread.later {
-                ChatAction.addToolMessage(tu.name, tu.input)
-              }
+              try {
+                GUI_Thread.later {
+                  ChatAction.addToolMessage(tu.name, tu.input)
+                }
+              } catch { case _: Exception | _: LinkageError => () }
             }
-            val result = AssistantTools.executeToolWithPermission(tu.name, tu.input, view)
+            val result = toolExecutor(tu.name, tu.input)
 
             // Display tool result in chat UI
-            GUI_Thread.later {
-              ChatAction.addTransient(s"→ Tool result: ${result.take(200)}${if (result.length > 200) "..." else ""}")
-            }
+            try {
+              GUI_Thread.later {
+                ChatAction.addTransient(s"→ Tool result: ${result.take(200)}${if (result.length > 200) "..." else ""}")
+              }
+            } catch { case _: Exception | _: LinkageError => () }
             (tu.id, result)
           }
 
@@ -700,10 +731,12 @@ object BedrockClient {
 
     val finalText = textParts.mkString("\n\n")
     if (finalText.isEmpty) {
-      Output.warning("[Assistant] Tool-use loop completed without text response")
+      try { Output.warning("[Assistant] Tool-use loop completed without text response") }
+      catch { case _: Exception | _: LinkageError => () }
       "I processed the request using tools but could not generate a text summary. Please try again or rephrase your question."
     } else {
-      Output.writeln(s"[Assistant] Tool loop completed in $iteration iterations, response: ${finalText.length} chars")
+      try { Output.writeln(s"[Assistant] Tool loop completed in $iteration iterations, response: ${finalText.length} chars") }
+      catch { case _: Exception | _: LinkageError => () }
       finalText
     }
   }
