@@ -1839,6 +1839,7 @@ object AssistantTools {
           listed => {
             // Search theories in parallel (up to 8 concurrent threads)
             val allMatches = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+            val matchCount = new java.util.concurrent.atomic.AtomicInteger(0)
             val maxConcurrent = 8
             val theories = listed.files.toList
             val chunks = theories.grouped(math.max(1, theories.length / maxConcurrent + 1)).toList
@@ -1847,8 +1848,8 @@ object AssistantTools {
             for (chunk <- chunks) {
               val _ = Isabelle_Thread.fork(name = "search-theories-parallel") {
                 try {
-                  for (file <- chunk if allMatches.size < maxTotal && !AssistantDockable.isCancelled) {
-                    val remaining = maxTotal - allMatches.size
+                  for (file <- chunk if matchCount.get() < maxTotal && !AssistantDockable.isCancelled) {
+                    val remaining = maxTotal - matchCount.get()
                     if (remaining > 0) {
                       val matches = IQMcpClient
                         .callReadFileSearch(
@@ -1860,10 +1861,11 @@ object AssistantTools {
                         .getOrElse(Nil)
                         .take(remaining)
                       matches.foreach { m =>
-                        if (allMatches.size < maxTotal) {
+                        if (matchCount.get() < maxTotal) {
                           val matchText = firstHighlightedOrFirstLine(m.context)
                           val truncatedText = if (matchText.length > 80) matchText.take(77) + "..." else matchText
-                          val _ = allMatches.add(s"${baseName(file.path)}:${m.lineNumber}: $truncatedText")
+                          allMatches.add(s"${baseName(file.path)}:${m.lineNumber}: $truncatedText")
+                          val _ = matchCount.incrementAndGet()
                         }
                       }
                     }
