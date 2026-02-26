@@ -70,7 +70,7 @@ class IQMcpClientTest extends AnyFunSuite with Matchers {
   }
 
   test("decodeExploreResult should decode typed explore fields") {
-    val result = IQMcpClient.decodeExploreResult(
+    val result = IQMcpDecoder.decodeExploreResult(
       Map(
         "success" -> true,
         "results" -> "proof state",
@@ -88,7 +88,7 @@ class IQMcpClientTest extends AnyFunSuite with Matchers {
   }
 
   test("decodeResolvedCommandTarget should decode selection and command metadata") {
-    val decoded = IQMcpClient.decodeResolvedCommandTarget(
+    val decoded = IQMcpDecoder.decodeResolvedCommandTarget(
       Map(
         "selection" -> Map(
           "command_selection" -> "file_offset",
@@ -121,7 +121,7 @@ class IQMcpClientTest extends AnyFunSuite with Matchers {
   }
 
   test("decodeContextInfoResult should decode structured goal information") {
-    val decoded = IQMcpClient.decodeContextInfoResult(
+    val decoded = IQMcpDecoder.decodeContextInfoResult(
       Map(
         "selection" -> Map("command_selection" -> "current"),
         "command" -> Map(
@@ -153,7 +153,7 @@ class IQMcpClientTest extends AnyFunSuite with Matchers {
   }
 
   test("decodeDiagnosticsResult should decode selection-scope diagnostics payload") {
-    val decoded = IQMcpClient.decodeDiagnosticsResult(
+    val decoded = IQMcpDecoder.decodeDiagnosticsResult(
       Map(
         "scope" -> "selection",
         "severity" -> "warning",

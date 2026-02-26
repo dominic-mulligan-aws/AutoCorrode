@@ -3,10 +3,23 @@
 
 package isabelle.assistant
 
-/** Shared HTML utility methods to prevent duplication. */
+/** HTML escaping utility for the Assistant plugin.
+  *
+  * Provides canonical HTML entity escaping used throughout all HTML generation
+  * in chat messages, widgets, and code blocks. This ensures XSS-safe output when
+  * displaying user-provided or LLM-generated content.
+  */
 object HtmlUtil {
 
-  /** Escape &, <, > in a string for safe HTML embedding. */
+  /** Escape HTML special characters for safe embedding in HTML documents.
+    *
+    * Converts & → &amp;, < → &lt;, > → &gt; to prevent HTML injection and ensure
+    * special characters display correctly. Does NOT escape quotes (use additional
+    * encoding for attribute values if needed).
+    *
+    * @param s The string to escape (may contain any characters)
+    * @return HTML-safe string with special characters converted to entities
+    */
   def escapeHtml(s: String): String =
     s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 }
