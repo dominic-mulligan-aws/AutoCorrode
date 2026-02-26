@@ -663,70 +663,36 @@ object IQMcpClient {
   /** Lightweight ping to check if the I/Q MCP server is responsive.
     * Uses a dedicated JSON-RPC method that doesn't touch any Isabelle state.
     * Returns true if the server responds with ok status, false otherwise.
-    * Opens a fresh connection (not pooled) to avoid blocking the pool.
+    * Reuses the connection pool for efficiency.
     */
   def ping(timeoutMs: Long = 500L): Boolean = {
     try {
-      val tokenOpt = authTokenFromEnv()
-      val baseRequest = Map(
-        "jsonrpc" -> "2.0",
-        "id" -> nextRequestId(),
-        "method" -> "ping"
-      )
-      val request = tokenOpt match {
-        case Some(token) => baseRequest + ("auth_token" -> token)
-        case None => baseRequest
-      }
-
-      val socketTimeoutMs = {
-        val raw = timeoutMs + AssistantConstants.TIMEOUT_BUFFER_MS
-        val bounded = math.max(minSocketTimeoutMs.toLong, math.min(raw, Int.MaxValue.toLong))
-        bounded.toInt
-      }
-
-      var socket: Socket = null
-      var reader: BufferedReader = null
-      var writer: PrintWriter = null
-
-      try {
-        socket = new Socket()
-        socket.connect(
-          new InetSocketAddress(host, AssistantConstants.DEFAULT_MCP_PORT),
-          connectTimeoutMs
-        )
-        socket.setSoTimeout(socketTimeoutMs)
-
-        reader = new BufferedReader(
-          new InputStreamReader(socket.getInputStream, StandardCharsets.UTF_8)
-        )
-        writer = new PrintWriter(
-          new OutputStreamWriter(socket.getOutputStream, StandardCharsets.UTF_8),
-          true
-        )
+      connectionPool.withConnection(timeoutMs) { (reader, writer) =>
+        val tokenOpt = authTokenFromEnv()
+        val request = Map(
+          "jsonrpc" -> "2.0",
+          "id" -> nextRequestId(),
+          "method" -> "ping"
+        ) ++ tokenOpt.map("auth_token" -> _)
 
         writer.println(JSON.Format(request))
         val responseLine = reader.readLine()
 
         if (responseLine == null) false
         else {
-          parseToolCallResponse(responseLine, None) match {
-            case Right(payload) =>
-              payload.get("status").contains("ok")
-            case Left(_) => false
+          // Parse ping response directly (not tool_call format)
+          // Expected: {"jsonrpc":"2.0","id":"...","result":{"status":"ok"}}
+          JSON.parse(responseLine) match {
+            case JSON.Object(root) =>
+              !root.contains("error") && {
+                root.get("result").flatMap {
+                  case JSON.Object(resultObj) =>
+                    resultObj.get("status").map(_.toString)
+                  case _ => None
+                }.contains("ok")
+              }
+            case _ => false
           }
-        }
-      } finally {
-        if (writer != null) {
-          try writer.close()
-          catch { case NonFatal(_) => () }
-        }
-        if (reader != null) {
-          try reader.close()
-          catch { case NonFatal(_) => () }
-        }
-        if (socket != null) {
-          try socket.close()
-          catch { case NonFatal(_) => () }
         }
       }
     } catch {

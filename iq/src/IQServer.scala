@@ -4898,29 +4898,31 @@ end"""
         val lines = IQLineOffsetUtils.splitLines(content)
         val lineCount = lines.length
         
-        // Entity count from PIDE commands
-        val snapshot = Document_Model.snapshot(model)
-        val node = snapshot.get_node(model.node_name)
-        val entityCount = if (node != null) {
-          node.command_iterator().count { case (cmd, _) => 
-            EntityKeywords.contains(cmd.span.name)
-          }
-        } else 0
-        
-        // Processing status and diagnostics
-        val nodeStatus = Document_Status.Node_Status.make(
-          Date.now(), snapshot.state, snapshot.version, model.node_name
-        )
-        
-        Right(Map(
-          "path" -> filePath,
-          "line_count" -> lineCount,
-          "entity_count" -> entityCount,
-          "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
-          "has_errors" -> (nodeStatus.failed > 0),
-          "error_count" -> nodeStatus.failed,
-          "warning_count" -> nodeStatus.warned
-        ))
+        GUI_Thread.now {
+          // Entity count from PIDE commands
+          val snapshot = Document_Model.snapshot(model)
+          val node = snapshot.get_node(model.node_name)
+          val entityCount = if (node != null) {
+            node.command_iterator().count { case (cmd, _) => 
+              EntityKeywords.contains(cmd.span.name)
+            }
+          } else 0
+          
+          // Processing status and diagnostics
+          val nodeStatus = Document_Status.Node_Status.make(
+            Date.now(), snapshot.state, snapshot.version, model.node_name
+          )
+          
+          Right(Map(
+            "path" -> filePath,
+            "line_count" -> lineCount,
+            "entity_count" -> entityCount,
+            "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
+            "has_errors" -> (nodeStatus.failed > 0),
+            "error_count" -> nodeStatus.failed,
+            "warning_count" -> nodeStatus.warned
+          ))
+        }
       case _ => Left(s"File not tracked: $filePath")
     }
   }
@@ -4945,22 +4947,24 @@ end"""
 
     getFileContentAndModel(filePath) match {
       case (_, Some(model)) =>
-        val snapshot = Document_Model.snapshot(model)
-        val nodeStatus = Document_Status.Node_Status.make(
-          Date.now(), snapshot.state, snapshot.version, model.node_name
-        )
-        
-        Right(Map(
-          "path" -> filePath,
-          "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
-          "unprocessed" -> nodeStatus.unprocessed,
-          "running" -> nodeStatus.running,
-          "finished" -> nodeStatus.finished,
-          "failed" -> nodeStatus.failed,
-          "has_errors" -> (nodeStatus.failed > 0),
-          "error_count" -> nodeStatus.failed,
-          "consolidated" -> nodeStatus.consolidated
-        ))
+        GUI_Thread.now {
+          val snapshot = Document_Model.snapshot(model)
+          val nodeStatus = Document_Status.Node_Status.make(
+            Date.now(), snapshot.state, snapshot.version, model.node_name
+          )
+
+          Right(Map(
+            "path" -> filePath,
+            "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
+            "unprocessed" -> nodeStatus.unprocessed,
+            "running" -> nodeStatus.running,
+            "finished" -> nodeStatus.finished,
+            "failed" -> nodeStatus.failed,
+            "has_errors" -> (nodeStatus.failed > 0),
+            "error_count" -> nodeStatus.failed,
+            "consolidated" -> nodeStatus.consolidated
+          ))
+        }
       case _ => Left(s"File not tracked: $filePath")
     }
   }
@@ -4985,45 +4989,47 @@ end"""
 
     getFileContentAndModel(filePath) match {
       case (Some(content), Some(model)) =>
-        val snapshot = Document_Model.snapshot(model)
-        val node = snapshot.get_node(model.node_name)
-        val lineDoc = Line.Document(content)
-        
-        if (node == null || node.commands.isEmpty) {
-          Right(Map("path" -> filePath, "count" -> 0, "positions" -> List.empty[Map[String, Any]]))
-        } else {
-          // Find sorry/oops commands
-          val sorryKeywords = Set("sorry", "oops")
-          val commands = node.command_iterator().toList
+        GUI_Thread.now {
+          val snapshot = Document_Model.snapshot(model)
+          val node = snapshot.get_node(model.node_name)
+          val lineDoc = Line.Document(content)
           
-          // Find enclosing proof for each sorry
-          def findEnclosingProof(sorryIndex: Int): String = {
-            val proofStarters = Set("lemma", "theorem", "corollary", "proposition", "schematic_goal")
-            commands.take(sorryIndex).reverse.collectFirst {
-              case (cmd, _) if proofStarters.contains(cmd.span.name) =>
-                EntityNamePattern.findFirstMatchIn(cmd.source.take(200))
-                  .map(_.group(1))
-                  .getOrElse(s"${cmd.span.name} (unnamed)")
-            }.getOrElse("(unknown)")
+          if (node == null || node.commands.isEmpty) {
+            Right(Map("path" -> filePath, "count" -> 0, "positions" -> List.empty[Map[String, Any]]))
+          } else {
+            // Find sorry/oops commands
+            val sorryKeywords = Set("sorry", "oops")
+            val commands = node.command_iterator().toList
+            
+            // Find enclosing proof for each sorry
+            def findEnclosingProof(sorryIndex: Int): String = {
+              val proofStarters = Set("lemma", "theorem", "corollary", "proposition", "schematic_goal")
+              commands.take(sorryIndex).reverse.collectFirst {
+                case (cmd, _) if proofStarters.contains(cmd.span.name) =>
+                  EntityNamePattern.findFirstMatchIn(cmd.source.take(200))
+                    .map(_.group(1))
+                    .getOrElse(s"${cmd.span.name} (unnamed)")
+              }.getOrElse("(unknown)")
+            }
+            
+            val positions = commands.zipWithIndex.collect {
+              case ((cmd, offset), idx) if sorryKeywords.contains(cmd.span.name) =>
+                val line = lineDoc.position(offset).line + 1
+                val enclosingProof = findEnclosingProof(idx)
+                Map(
+                  "line" -> line,
+                  "keyword" -> cmd.span.name,
+                  "offset" -> offset,
+                  "in_proof" -> enclosingProof
+                )
+            }
+            
+            Right(Map(
+              "path" -> filePath,
+              "count" -> positions.length,
+              "positions" -> positions
+            ))
           }
-          
-          val positions = commands.zipWithIndex.collect {
-            case ((cmd, offset), idx) if sorryKeywords.contains(cmd.span.name) =>
-              val line = lineDoc.position(offset).line + 1
-              val enclosingProof = findEnclosingProof(idx)
-              Map(
-                "line" -> line,
-                "keyword" -> cmd.span.name,
-                "offset" -> offset,
-                "in_proof" -> enclosingProof
-              )
-          }
-          
-          Right(Map(
-            "path" -> filePath,
-            "count" -> positions.length,
-            "positions" -> positions
-          ))
         }
       case _ => Left(s"File not tracked: $filePath")
     }

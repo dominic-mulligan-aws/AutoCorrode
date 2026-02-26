@@ -418,7 +418,7 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       "Max Tokens",
       AssistantConstants.DEFAULT_MAX_TOKENS,
       AssistantConstants.MIN_MAX_TOKENS,
-      AssistantConstants.MAX_MAX_TOKENS
+      Int.MaxValue
     )
     val maxToolIterationsValue = normalizeOptionalInt(
       maxToolIterationsField.getText,
@@ -681,7 +681,7 @@ object AssistantOptions {
         "assistant.max.tokens",
         AssistantConstants.DEFAULT_MAX_TOKENS,
         AssistantConstants.MIN_MAX_TOKENS,
-        AssistantConstants.MAX_MAX_TOKENS
+        Int.MaxValue
       ),
       maxToolIterations =
         optIntProp(
@@ -944,7 +944,7 @@ object AssistantOptions {
       "max_tokens",
       "assistant.max.tokens",
       AssistantConstants.MIN_MAX_TOKENS,
-      AssistantConstants.MAX_MAX_TOKENS,
+      Int.MaxValue,
       _.maxTokens
     ),
     OptionalIntSetting(
