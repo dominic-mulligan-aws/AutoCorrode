@@ -160,4 +160,66 @@ class AssistantOptionsTest extends AnyFunSuite with Matchers {
     AssistantOptions.hasSettingKey("planning_model") shouldBe true
     AssistantOptions.hasSettingKey("planning_temperature") shouldBe true
   }
+
+  test("parseSnapshot should accept valid summarization model ID") {
+    val snapshot = parse(Map("assistant.summarization.model.id" -> "anthropic.claude-3-5-haiku-20241022-v1:0"))
+    snapshot.summarizationBaseModelId shouldBe "anthropic.claude-3-5-haiku-20241022-v1:0"
+  }
+
+  test("parseSnapshot should reject invalid summarization model ID") {
+    val snapshot = parse(Map("assistant.summarization.model.id" -> "meta.llama3-8b-instruct-v1:0"))
+    snapshot.summarizationBaseModelId shouldBe ""
+  }
+
+  test("parseSnapshot should allow empty summarization model ID (use main model)") {
+    val snapshot = parse(Map("assistant.summarization.model.id" -> ""))
+    snapshot.summarizationBaseModelId shouldBe ""
+  }
+
+  test("parseSnapshot should parse valid summarization temperature") {
+    val snapshot = parse(Map("assistant.summarization.temperature" -> "0.0"))
+    snapshot.summarizationTemperature shouldBe Some(0.0)
+  }
+
+  test("parseSnapshot should treat empty summarization temperature as None") {
+    val snapshot = parse(Map("assistant.summarization.temperature" -> ""))
+    snapshot.summarizationTemperature shouldBe None
+  }
+
+  test("parseSnapshot should reject out-of-range summarization temperature") {
+    val snapshot1 = parse(Map("assistant.summarization.temperature" -> "1.5"))
+    snapshot1.summarizationTemperature shouldBe None
+    
+    val snapshot2 = parse(Map("assistant.summarization.temperature" -> "-0.5"))
+    snapshot2.summarizationTemperature shouldBe None
+  }
+
+  test("parseSnapshot should parse autoSummarize boolean") {
+    val defaults = parse()
+    defaults.autoSummarize shouldBe true
+
+    val disabled = parse(bools = Map("assistant.auto.summarize" -> false))
+    disabled.autoSummarize shouldBe false
+  }
+
+  test("parseSnapshot should parse and clamp summarization threshold") {
+    val defaults = parse()
+    defaults.summarizationThreshold shouldBe AssistantConstants.DEFAULT_SUMMARIZATION_THRESHOLD
+
+    val valid = parse(Map("assistant.summarization.threshold" -> "0.8"))
+    valid.summarizationThreshold shouldBe 0.8
+
+    val tooHigh = parse(Map("assistant.summarization.threshold" -> "1.5"))
+    tooHigh.summarizationThreshold shouldBe AssistantConstants.MAX_SUMMARIZATION_THRESHOLD
+
+    val tooLow = parse(Map("assistant.summarization.threshold" -> "0.3"))
+    tooLow.summarizationThreshold shouldBe AssistantConstants.MIN_SUMMARIZATION_THRESHOLD
+  }
+
+  test("summarization settings should be in settingDefs") {
+    AssistantOptions.hasSettingKey("auto_summarize") shouldBe true
+    AssistantOptions.hasSettingKey("summarization_threshold") shouldBe true
+    AssistantOptions.hasSettingKey("summarization_model") shouldBe true
+    AssistantOptions.hasSettingKey("summarization_temperature") shouldBe true
+  }
 }

@@ -164,6 +164,24 @@ object ContextTracker {
   }
 
   /**
+   * Check if conversation should trigger automatic summarization.
+   * Convenience wrapper around calculate() for pre-flight checks.
+   * 
+   * @param history Current conversation history
+   * @param modelId Model ID to use for context window calculation
+   * @return True if summarization should be triggered
+   */
+  def shouldSummarize(history: List[ChatAction.Message], modelId: String): Boolean = {
+    if (!AssistantOptions.getAutoSummarize) return false
+    
+    val nonTransient = history.filterNot(_.transient)
+    if (nonTransient.length < AssistantConstants.MIN_MESSAGES_FOR_SUMMARIZATION) return false
+    
+    val usage = calculate(history, modelId)
+    usage.budgetPercentage >= AssistantOptions.getSummarizationThreshold
+  }
+
+  /**
    * Calculate context usage from conversation history.
    * 
    * Analyzes the current conversation state and compares against both the

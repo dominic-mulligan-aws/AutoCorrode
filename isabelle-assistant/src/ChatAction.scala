@@ -268,6 +268,26 @@ object ChatAction {
     history = Nil
   }
 
+  /**
+   * Atomically replace the entire conversation history with a summary message.
+   * Used by ContextSummarizer when context budget is exceeded.
+   * 
+   * @param summaryContent The formatted summary text to use as the new seed message
+   */
+  def replaceHistoryWithSummary(summaryContent: String): Unit = historyLock.synchronized {
+    history = List(Message(Assistant, summaryContent, LocalDateTime.now()))
+  }
+
+  /**
+   * Add a transient notification that context was summarized.
+   * Shows the user that old messages were compressed to save space.
+   */
+  def addSummarizationNotice(): Unit = {
+    val notice = "📋 Context was automatically summarized to stay within limits. Your task progress has been preserved."
+    addMessage(Message(Assistant, notice, LocalDateTime.now(), transient = true))
+    AssistantDockable.showConversation(getHistory)
+  }
+
   /** Get the current history as an immutable snapshot. Thread-safe because
     * @volatile ensures visibility and the List reference is immutable once
     * published. Writers are serialized by historyLock.

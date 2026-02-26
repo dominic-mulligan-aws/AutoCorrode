@@ -363,6 +363,25 @@ object BedrockClient {
     }
   }
 
+  /**
+   * Invoke a single prompt with structured output, bypassing cache.
+   * Extended version with model and temperature overrides.
+   * Use for operations like summarization where caching is undesirable.
+   */
+  def invokeNoCacheStructured(
+      prompt: String,
+      schema: StructuredResponseSchema,
+      systemPrompt: String,
+      modelIdOverride: Option[String],
+      temperatureOverride: Option[Double]
+  ): ToolArgs = {
+    ErrorHandler.logOperation("invokeNoCacheStructured") {
+      retryWithBackoff(maxRetries) {
+        invokeStructuredInternal(prompt, schema, systemPrompt, modelIdOverride, temperatureOverride)
+      }
+    }
+  }
+
   /** Single-prompt structured invocation. */
   private def invokeStructuredInternal(
     prompt: String, 
@@ -538,7 +557,8 @@ object BedrockClient {
    */
   private def invokeChatInternal(
       systemPrompt: String,
-      messages: List[ChatTurn]
+      messages: List[ChatTurn],
+      summarizationAttempted: Boolean = false
   ): String = {
     val modelId = AssistantOptions.getModelId
     requireAnthropicModel(modelId)
@@ -549,6 +569,17 @@ object BedrockClient {
     val fullSystemPrompt = List(PromptLoader.getSystemPrompt, systemPrompt).filter(_.nonEmpty).mkString("\n\n")
 
     Output.writeln(s"[Assistant] invokeChat - Model: $modelId, Messages: ${messages.length}")
+
+    // Pre-flight summarization check (only on first call, not after summarization retry)
+    if (!summarizationAttempted && ContextSummarizer.shouldSummarize(ChatAction.getHistory, modelId)) {
+      Output.writeln("[Assistant] Context budget threshold reached - triggering summarization")
+      ContextSummarizer.performSummarization(modelId)
+      // Re-snapshot messages after summarization replaced history
+      val updatedHistory = ChatAction.getHistory
+        .filterNot(_.transient)
+        .flatMap(m => BedrockRole.fromWire(m.role.wireValue).map(ChatTurn(_, m.content)))
+      return invokeChatInternal(systemPrompt, updatedHistory, summarizationAttempted = true)
+    }
 
     val maxChars = AssistantConstants.MAX_CHAT_CONTEXT_CHARS
     // Anthropic doesn't count system prompt against message context budget
