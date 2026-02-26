@@ -30,7 +30,21 @@ object IQMcpProtocol {
       message: String,
       timedOut: Boolean,
       error: Option[String]
-  )
+  ) {
+    /** Extract the best failure message from the result fields.
+      * Checks error, message, and results in order, returning the first non-empty value.
+      * @param fallback Default message if all fields are empty
+      * @return The failure message or fallback
+      */
+    def failureMessage(fallback: String): String = {
+      val candidates = List(
+        error.filter(_.trim.nonEmpty),
+        Option(message).filter(_.trim.nonEmpty),
+        Option(results).filter(_.trim.nonEmpty)
+      ).flatten
+      candidates.headOption.getOrElse(fallback)
+    }
+  }
 
   /** Metadata for a single file from list_files query.
     * @param path Absolute file path

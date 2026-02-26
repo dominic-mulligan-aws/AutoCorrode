@@ -114,51 +114,51 @@ object WidgetRenderer {
     
     val tasks = TaskList.getTasks
     if (tasks.isEmpty) {
-      return s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
+      s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
          |border-left:4px solid $border;border-radius:3px;
          |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
          |<div style='font-size:10pt;color:$headerText;font-weight:bold;'>Task List</div>
          |<div style='font-size:10pt;color:$progressText;margin-top:4px;'>
          |Task list is empty. Add tasks to get started.</div>
          |</div>""".stripMargin
-    }
-    
-    val (doneCount, todoCount, _) = TaskList.getStatusCounts
-    val progress = s"$doneCount/${tasks.length} done, $todoCount pending"
-    
-    val nextTaskId = tasks.find(_.status == TaskList.Todo).map(_.id)
-    
-    val taskItems = tasks.map { task =>
-      val isNext = highlightNext && nextTaskId.contains(task.id)
-      val (icon, iconColor) = task.status match {
-        case TaskList.Done => ("✓", doneIcon)
-        case TaskList.Irrelevant => ("✗", irrelevantIcon)
-        case TaskList.Todo if isNext => ("●", nextIcon)
-        case TaskList.Todo => ("○", pendingIcon)
-      }
+    } else {
+      val (doneCount, todoCount, _) = TaskList.getStatusCounts
+      val progress = s"$doneCount/${tasks.length} done, $todoCount pending"
       
-      val titleStyle = task.status match {
-        case TaskList.Irrelevant => s"color:$irrelevantText;text-decoration:line-through;"
-        case _ => s"color:$taskText;"
-      }
+      val nextTaskId = tasks.find(_.status == TaskList.Todo).map(_.id)
       
-      val nextMarker = if (isNext) s" <span style='color:$nextIcon;font-size:9pt;'>← next</span>" else ""
+      val taskItems = tasks.map { task =>
+        val isNext = highlightNext && nextTaskId.contains(task.id)
+        val (icon, iconColor) = task.status match {
+          case TaskList.Done => ("✓", doneIcon)
+          case TaskList.Irrelevant => ("✗", irrelevantIcon)
+          case TaskList.Todo if isNext => ("●", nextIcon)
+          case TaskList.Todo => ("○", pendingIcon)
+        }
+        
+        val titleStyle = task.status match {
+          case TaskList.Irrelevant => s"color:$irrelevantText;text-decoration:line-through;"
+          case _ => s"color:$taskText;"
+        }
+        
+        val nextMarker = if (isNext) s" <span style='color:$nextIcon;font-size:9pt;'>← next</span>" else ""
+        
+        s"""<div style='margin:2px 0;'>
+           |<span style='color:$iconColor;font-weight:bold;margin-right:6px;'>$icon</span>
+           |<span style='$titleStyle;font-size:10pt;'>#${task.id}. ${HtmlUtil.escapeHtml(task.title)}</span>$nextMarker
+           |</div>""".stripMargin
+      }.mkString("\n")
       
-      s"""<div style='margin:2px 0;'>
-         |<span style='color:$iconColor;font-weight:bold;margin-right:6px;'>$icon</span>
-         |<span style='$titleStyle;font-size:10pt;'>#${task.id}. ${HtmlUtil.escapeHtml(task.title)}</span>$nextMarker
+      s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
+         |border-left:4px solid $border;border-radius:3px;
+         |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+         |<div style='font-size:10pt;color:$headerText;margin-bottom:2px;font-weight:bold;'>
+         |Task List <span style='font-weight:normal;color:$progressText;'>($progress)</span></div>
+         |<div style='margin-top:6px;'>
+         |$taskItems
+         |</div>
          |</div>""".stripMargin
-    }.mkString("\n")
-    
-    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
-       |border-left:4px solid $border;border-radius:3px;
-       |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
-       |<div style='font-size:10pt;color:$headerText;margin-bottom:2px;font-weight:bold;'>
-       |Task List <span style='font-weight:normal;color:$progressText;'>($progress)</span></div>
-       |<div style='margin-top:6px;'>
-       |$taskItems
-       |</div>
-       |</div>""".stripMargin
+    }
   }
 
   /** Render HTML widget showing detailed information for a specific task.

@@ -24,7 +24,6 @@ object VerifyWithRetry {
    * MUST be called from the GUI thread.
    *
    * @param view       jEdit view
-   * @param command    Isabelle command to verify against
    * @param codeToVerify  The generated code to verify
    * @param fullResponse  The full LLM response (for display)
    * @param attempt    Current attempt number (1-based)

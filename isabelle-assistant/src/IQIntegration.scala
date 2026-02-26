@@ -116,14 +116,6 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
         }
     }
 
-  private def exploreFailureMessage(
-      explore: IQMcpClient.ExploreResult,
-      fallback: String
-  ): String = {
-    val message = Option(explore.message).getOrElse("").trim
-    if (message.nonEmpty) message
-    else Option(explore.error).flatten.map(_.trim).filter(_.nonEmpty).getOrElse(fallback)
-  }
 
   private def indicatesMissingIsarExplore(message: String): Boolean = {
     val lower = Option(message).getOrElse("").toLowerCase(Locale.ROOT)
@@ -335,8 +327,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
                       )
                     else if (explore.timedOut) ProofTimeout
                     else {
-                      val message =
-                        exploreFailureMessage(explore, "proof verification failed")
+                      val message = explore.failureMessage("proof verification failed")
                       if (indicatesMissingIsarExplore(message))
                         MissingImport(getIsarExploreImportSuggestion)
                       else ProofFailure(message)
@@ -381,11 +372,11 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
             .fold(
               mcpErr => Left(s"I/Q MCP step execution failed: $mcpErr"),
               explore => {
-                if (explore.success) {
+                  if (explore.success) {
                   val text = Option(explore.results).getOrElse("").trim
                   Right(parseStepResult(text, System.currentTimeMillis() - startTime))
                 } else if (explore.timedOut) Left("timeout")
-                else Left(exploreFailureMessage(explore, "step execution failed"))
+                else Left(explore.failureMessage("step execution failed"))
               }
             )
           callbackOnGui(callback, result)
@@ -477,7 +468,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
                   Right(parseFindTheoremsResults(explore.results))
                 else if (explore.timedOut) Left("find_theorems timed out")
                 else
-                  Left(exploreFailureMessage(explore, "find_theorems failed"))
+                  Left(explore.failureMessage("find_theorems failed"))
               }
             )
           callbackOnGui(callback, result)
@@ -525,7 +516,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
                 explore => {
                   if (explore.success) Right(Option(explore.results).getOrElse(""))
                   else if (explore.timedOut) Left("query timed out")
-                  else Left(exploreFailureMessage(explore, "query failed"))
+                  else Left(explore.failureMessage("query failed"))
                 }
               )
             callbackOnGui(callback, result)
@@ -585,7 +576,7 @@ Replace $IQ_HOME with the path to your I/Q plugin installation."""
               explore => {
                 if (explore.success) Right(parseSledgehammerResults(explore.results))
                 else if (explore.timedOut) Left("sledgehammer timed out")
-                else Left(exploreFailureMessage(explore, "sledgehammer failed"))
+                else Left(explore.failureMessage("sledgehammer failed"))
               }
             )
           callbackOnGui(callback, result)

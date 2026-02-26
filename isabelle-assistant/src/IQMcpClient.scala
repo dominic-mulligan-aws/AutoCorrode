@@ -114,6 +114,12 @@ object IQMcpClient {
                 connection = None
                 throw ex2
             }
+          case ex: Exception =>
+            // Non-IO exception after request was sent - connection may be in inconsistent state
+            // Discard connection but don't retry (error is likely in parsing/logic, not transport)
+            closeQuietly()
+            connection = None
+            throw ex
         }
       } finally {
         lock.unlock()
@@ -133,7 +139,14 @@ object IQMcpClient {
             
             writer.println(JSON.Format(request))
             val response = reader.readLine()
-            response != null && parseToolCallResponse(response, None).isRight
+            // Ping returns {"result":{"status":"ok"}} not the tool_call format
+            // Just verify we get a valid JSON response without an error field
+            response != null && {
+              JSON.parse(response) match {
+                case JSON.Object(root) => !root.contains("error")
+                case _ => false
+              }
+            }
           } catch {
             case NonFatal(_) => false
           }
@@ -170,12 +183,6 @@ object IQMcpClient {
       .map(_.trim)
       .filter(_.nonEmpty)
 
-  private def asObject(value: Any): Option[Map[String, Any]] = value match {
-    case JSON.Object(obj) => Some(obj)
-    case obj: Map[?, ?] =>
-      Some(obj.collect { case (k: String, v) => k -> v }.toMap)
-    case _ => None
-  }
 
   private def decodeJsonValue(value: Any): Any = value match {
     case JSON.Object(obj) => obj.view.mapValues(decodeJsonValue).toMap
@@ -267,7 +274,7 @@ object IQMcpClient {
     try {
       JSON.parse(rawResponse) match {
         case JSON.Object(root) =>
-          root.get("error").flatMap(asObject) match {
+          root.get("error").flatMap(IQMcpDecoder.asObject) match {
             case Some(errorObj) =>
               val msg = errorObj
                 .get("message")
@@ -277,9 +284,9 @@ object IQMcpClient {
             case None =>
               val payloadTextOpt =
                 for {
-                  resultObj <- root.get("result").flatMap(asObject)
-                  content <- resultObj.get("content").flatMap(asList)
-                  textObj <- content.iterator.flatMap(asObject).find(obj => obj.get("type").contains("text"))
+                  resultObj <- root.get("result").flatMap(IQMcpDecoder.asObject)
+                  content <- resultObj.get("content").flatMap(IQMcpDecoder.asList)
+                  textObj <- content.iterator.flatMap(IQMcpDecoder.asObject).find(obj => obj.get("type").contains("text"))
                   text <- textObj.get("text").map(_.toString)
                 } yield text
 
@@ -301,10 +308,6 @@ object IQMcpClient {
     }
   }
 
-  private def asList(value: Any): Option[List[Any]] = value match {
-    case xs: List[?] => Some(xs.asInstanceOf[List[Any]])
-    case _ => None
-  }
 
   def callTool(
       toolName: String,
