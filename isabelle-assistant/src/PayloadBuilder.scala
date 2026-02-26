@@ -100,6 +100,34 @@ object PayloadBuilder {
     }
   }
 
+  /** Build Anthropic payload with planning tools only (read-only exploration).
+    * Used by planning sub-agents to prevent write operations and recursion. */
+  def buildPlanningAgentToolPayload(
+    systemPrompt: String, messages: List[(String, String)],
+    temperature: Double, maxTokens: Int
+  ): String = {
+    writeJson { g =>
+      g.writeStringField("anthropic_version", "bedrock-2023-05-31")
+      g.writeNumberField("max_tokens", maxTokens)
+      g.writeNumberField("temperature", temperature)
+      g.writeStringField("system", systemPrompt)
+      AssistantTools.writePlanningToolsJson(g)
+      g.writeArrayFieldStart("messages")
+      for ((role, content) <- messages) {
+        g.writeStartObject()
+        g.writeStringField("role", role)
+        if (isAnthropicStructuredContent(content)) {
+          g.writeFieldName("content")
+          g.writeRawValue(content)
+        } else {
+          g.writeStringField("content", content)
+        }
+        g.writeEndObject()
+      }
+      g.writeEndArray()
+    }
+  }
+
   /** Only treat content as raw JSON when it is a valid Anthropic content-block array. */
   private[assistant] def isAnthropicStructuredContent(content: String): Boolean = {
     val trimmed = content.trim

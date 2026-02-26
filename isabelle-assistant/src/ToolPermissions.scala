@@ -174,7 +174,10 @@ object ToolPermissions {
     ToolId.TaskListIrrelevant -> Allow,
     ToolId.TaskListNext -> Allow,
     ToolId.TaskListShow -> Allow,
-    ToolId.TaskListGet -> Allow
+    ToolId.TaskListGet -> Allow,
+    
+    // Planning agent → Allow (read-only exploration, no side effects)
+    ToolId.PlanApproach -> Allow
   )
   require(
     defaultPermissions.keySet == ToolId.values.toSet,
@@ -224,7 +227,8 @@ object ToolPermissions {
     ToolId.TaskListIrrelevant -> "mark task list items as irrelevant",
     ToolId.TaskListNext -> "retrieve the next pending task list item",
     ToolId.TaskListShow -> "show the current task list",
-    ToolId.TaskListGet -> "retrieve a specific task list item"
+    ToolId.TaskListGet -> "retrieve a specific task list item",
+    ToolId.PlanApproach -> "launch a planning agent to analyze problems and generate implementation plans"
   )
   require(
     toolDescriptionsById.keySet == ToolId.values.toSet,

@@ -128,8 +128,8 @@ class AssistantToolsTest extends AnyFunSuite with Matchers {
     params.forall(!_.required) shouldBe true
   }
 
-  test("all tools should have exactly 42 entries") {
-    AssistantTools.tools.length shouldBe 42
+  test("all tools should have exactly 43 entries") {
+    AssistantTools.tools.length shouldBe 43
   }
 
   test("tool names should follow naming convention") {

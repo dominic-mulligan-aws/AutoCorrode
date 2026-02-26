@@ -21,7 +21,8 @@ object PromptLoader {
     "00_core_operating_rules.md",
     "01_isabelle_style.md",
     "02_tools.md",
-    "03_task_planning.md"
+    "03_task_planning.md",
+    "04_planning_tool.md"
   )
   private val builtInSystemPrompt =
     """You are an Isabelle/HOL proof assistant.

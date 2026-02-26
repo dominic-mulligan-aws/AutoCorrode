@@ -332,4 +332,165 @@ object WidgetRenderer {
        |$optionButtons
        |</div>""".stripMargin
   }
+
+  /** Render HTML widget for planning in progress.
+    * Shows the current phase of the adaptive tree-of-thought planning process.
+    * 
+    * @param problem Brief description of the problem being planned
+    * @param phase Current phase: "brainstorm", "elaborate", or "select"
+    * @param approachTitles Titles of the 3 approaches (for elaborate/select phases)
+    * @return HTML string for injection into chat as a Widget message
+    */
+  def planningInProgress(
+      problem: String,
+      phase: String,
+      approachTitles: List[String] = List.empty
+  ): String = {
+    val border = UIColors.ToolMessage.border
+    val bg = "white"
+    val headerText = UIColors.ToolMessage.timestamp
+    val progressText = UIColors.TaskList.progressText
+    
+    val truncProblem = if (problem.length > 80) problem.take(77) + "..." else problem
+    
+    val phaseDisplay = phase match {
+      case "brainstorm" => "Phase 1: Brainstorming approaches..."
+      case "elaborate" => "Phase 2: Elaborating approaches in parallel..."
+      case "select" => "Phase 3: Selecting best approach..."
+      case _ => "Planning..."
+    }
+    
+    val approachesHtml = if (approachTitles.nonEmpty) {
+      val items = approachTitles.zipWithIndex.map { case (title, idx) =>
+        s"<div style='margin-left:12px;font-size:10pt;color:$progressText;'>→ Approach ${idx + 1}: ${HtmlUtil.escapeHtml(title)}</div>"
+      }.mkString("\n")
+      s"\n$items"
+    } else ""
+    
+    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
+       |border-left:4px solid $border;border-radius:3px;
+       |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+       |<div style='font-size:10pt;color:$headerText;margin-bottom:3px;'>
+       |<b>→ Planning:</b> "${HtmlUtil.escapeHtml(truncProblem)}"</div>
+       |<div style='font-size:10pt;color:$progressText;margin-top:4px;'>
+       |$phaseDisplay</div>$approachesHtml
+       |</div>""".stripMargin
+  }
+
+  /** Render HTML widget showing the planning result.
+    * Shows all 3 approaches, which was selected, why, and the final plan.
+    * 
+    * @param problem The problem that was planned
+    * @param approaches List of approach titles
+    * @param selectedApproach Index of selected approach (1-based)
+    * @param reasoning Why this approach was selected
+    * @param plan The final detailed plan text
+    * @param registerAction Function to register collapse/expand action
+    * @return HTML string for injection into chat as a Widget message
+    */
+  def planningResult(
+      problem: String,
+      approaches: List[String],
+      selectedApproach: Int,
+      reasoning: String,
+      plan: String,
+      registerAction: (() => Unit) => String
+  ): String = {
+    val border = UIColors.ToolMessage.border
+    val bg = "white"
+    val headerText = UIColors.ToolMessage.timestamp
+    val progressText = UIColors.TaskList.progressText
+    val selectedIcon = UIColors.TaskList.doneIcon
+    val taskText = UIColors.TaskList.taskText
+    val linkColor = UIColors.linkColor
+    
+    val truncProblem = if (problem.length > 80) problem.take(77) + "..." else problem
+    
+    // List all approaches with selection indicator
+    val approachesHtml = approaches.zipWithIndex.map { case (title, idx) =>
+      val isSelected = (idx + 1) == selectedApproach
+      val marker = if (isSelected) s"<span style='color:$selectedIcon;font-weight:bold;'>✓</span> " else "  "
+      val style = if (isSelected) s"font-weight:bold;color:$headerText;" else s"color:$progressText;"
+      s"<div style='margin:2px 0 2px 12px;font-size:10pt;$style;'>$marker${idx + 1}. ${HtmlUtil.escapeHtml(title)}</div>"
+    }.mkString("\n")
+    
+    // Show reasoning for selection
+    val reasoningHtml = s"""<div style='margin:8px 0 8px 12px;font-size:10pt;color:$taskText;font-style:italic;'>
+       |"${HtmlUtil.escapeHtml(reasoning)}"</div>""".stripMargin
+    
+    // Plan content with collapse/expand
+    val planLines = plan.linesIterator.toList
+    val planHtml = if (planLines.length <= 15) {
+      s"<pre style='font-family:${MarkdownRenderer.codeFont};font-size:10pt;color:$taskText;white-space:pre-wrap;margin:8px 0 0 12px;'>${HtmlUtil.escapeHtml(plan)}</pre>"
+    } else {
+      val preview = planLines.take(5).mkString("\n")
+      val expandId = registerAction(() => {
+        GUI_Thread.later {
+          val fullHtml = planningResultExpanded(problem, approaches, selectedApproach, reasoning, plan)
+          ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, fullHtml,
+            java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+          AssistantDockable.showConversation(ChatAction.getHistory)
+        }
+      })
+      val previewHtml = HtmlUtil.escapeHtml(preview)
+      s"""<pre style='font-family:${MarkdownRenderer.codeFont};font-size:10pt;color:$taskText;white-space:pre-wrap;margin:8px 0 0 12px;'>$previewHtml</pre>
+         |<div style='margin:6px 0 0 12px;font-size:10pt;'>
+         |<a href='action:insert:$expandId' style='color:$linkColor;text-decoration:none;'>
+         |▸ Show full plan (${planLines.length} lines)</a></div>""".stripMargin
+    }
+    
+    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
+       |border-left:4px solid $border;border-radius:3px;
+       |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+       |<div style='font-size:10pt;color:$headerText;margin-bottom:4px;font-weight:bold;'>
+       |✅ Planning Complete: "${HtmlUtil.escapeHtml(truncProblem)}"</div>
+       |<div style='font-size:9pt;color:$progressText;margin:4px 0 4px 12px;'>Approaches Considered:</div>
+       |$approachesHtml
+       |<div style='font-size:9pt;color:$progressText;margin:8px 0 2px 12px;'>Selection Reasoning:</div>
+       |$reasoningHtml
+       |<div style='font-size:9pt;color:$progressText;margin:8px 0 2px 12px;'>Final Plan:</div>
+       |$planHtml
+       |</div>""".stripMargin
+  }
+
+  /** Render expanded planning result (full plan, no truncation). */
+  private def planningResultExpanded(
+      problem: String,
+      approaches: List[String],
+      selectedApproach: Int,
+      reasoning: String,
+      plan: String
+  ): String = {
+    val border = UIColors.ToolMessage.border
+    val bg = "white"
+    val headerText = UIColors.ToolMessage.timestamp
+    val progressText = UIColors.TaskList.progressText
+    val selectedIcon = UIColors.TaskList.doneIcon
+    val taskText = UIColors.TaskList.taskText
+    
+    val truncProblem = if (problem.length > 80) problem.take(77) + "..." else problem
+    
+    val approachesHtml = approaches.zipWithIndex.map { case (title, idx) =>
+      val isSelected = (idx + 1) == selectedApproach
+      val marker = if (isSelected) s"<span style='color:$selectedIcon;font-weight:bold;'>✓</span> " else "  "
+      val style = if (isSelected) s"font-weight:bold;color:$headerText;" else s"color:$progressText;"
+      s"<div style='margin:2px 0 2px 12px;font-size:10pt;$style;'>$marker${idx + 1}. ${HtmlUtil.escapeHtml(title)}</div>"
+    }.mkString("\n")
+    
+    val reasoningHtml = s"""<div style='margin:8px 0 8px 12px;font-size:10pt;color:$taskText;font-style:italic;'>
+       |"${HtmlUtil.escapeHtml(reasoning)}"</div>""".stripMargin
+    
+    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
+       |border-left:4px solid $border;border-radius:3px;
+       |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+       |<div style='font-size:10pt;color:$headerText;margin-bottom:4px;font-weight:bold;'>
+       |✅ Planning Complete: "${HtmlUtil.escapeHtml(truncProblem)}"</div>
+       |<div style='font-size:9pt;color:$progressText;margin:4px 0 4px 12px;'>Approaches Considered:</div>
+       |$approachesHtml
+       |<div style='font-size:9pt;color:$progressText;margin:8px 0 2px 12px;'>Selection Reasoning:</div>
+       |$reasoningHtml
+       |<div style='font-size:9pt;color:$progressText;margin:8px 0 2px 12px;'>Full Plan:</div>
+       |<pre style='font-family:${MarkdownRenderer.codeFont};font-size:10pt;color:$taskText;white-space:pre-wrap;margin:8px 0 0 12px;'>${HtmlUtil.escapeHtml(plan)}</pre>
+       |</div>""".stripMargin
+  }
 }

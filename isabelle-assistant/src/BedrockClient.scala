@@ -4,12 +4,14 @@
 package isabelle.assistant
 
 import isabelle._
+import org.gjt.sp.jedit.View
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient
 import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.regions.Region
-import software.amazon.awssdk.thirdparty.jackson.core.JsonFactory
+import software.amazon.awssdk.thirdparty.jackson.core.{JsonFactory, JsonParser, JsonToken}
 import java.io.StringWriter
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 import scala.util.control.NonFatal
 
 /**
@@ -716,7 +718,7 @@ object BedrockClient {
             catch { case _: Exception | _: LinkageError => () }
             
             // Skip tool call bubble for tools that inject their own widgets
-            val skipToolCallBubble = tu.name.startsWith("task_list_") || tu.name == "ask_user"
+            val skipToolCallBubble = tu.name.startsWith("task_list_") || tu.name == "ask_user" || tu.name == "plan_approach"
             if (!skipToolCallBubble) {
               try {
                 GUI_Thread.later {
@@ -728,8 +730,8 @@ object BedrockClient {
             val result = toolExecutor(tu.name, tu.input)
 
             // Skip tool result bubble for tools that inject their own widgets
-            // (task_list_* and ask_user already show rich UI widgets)
-            val skipToolResultBubble = tu.name.startsWith("task_list_") || tu.name == "ask_user"
+            // (task_list_*, ask_user, and plan_approach already show rich UI widgets)
+            val skipToolResultBubble = tu.name.startsWith("task_list_") || tu.name == "ask_user" || tu.name == "plan_approach"
             if (!skipToolResultBubble) {
               try {
                 GUI_Thread.later {
@@ -926,6 +928,491 @@ object BedrockClient {
     }
     Output.writeln(s"[Assistant] Parsed response length: ${parsed.length} chars")
     parsed
+  }
+
+  /**
+   * Orchestrate the adaptive tree-of-thought planning process.
+   * Phase 1: Brainstorm 3 approaches
+   * Phase 2: Elaborate each approach in parallel using exploration tools
+   * Phase 3: Select the best approach and return a refined plan
+   * 
+   * @param problem Detailed problem description
+   * @param scope Scope hint (e.g., "proof", "refactor")
+   * @param view Current jEdit view for context
+   * @return The final detailed plan text
+   */
+  def invokePlanningAgent(problem: String, scope: String, view: View): String = {
+    ErrorHandler.logOperation("invokePlanningAgent") {
+      Output.writeln(s"[Assistant] Planning agent: starting adaptive tree-of-thought for: ${problem.take(80)}")
+      
+      // Show initial planning widget
+      GUI_Thread.later {
+        val html = WidgetRenderer.planningInProgress(problem, "brainstorm")
+        ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html,
+          java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+        AssistantDockable.showConversation(ChatAction.getHistory)
+      }
+      
+      // Capture context snapshot from current state
+      val contextSnapshot = captureContextSnapshot(view)
+      
+      // Phase 1: Brainstorm 3 approaches (single API call)
+      Output.writeln("[Assistant] Planning Phase 1: Brainstorming approaches...")
+      val approaches = brainstormApproaches(problem, contextSnapshot, scope)
+      
+      if (AssistantDockable.isCancelled) {
+        "Planning cancelled by user."
+      } else {
+        // Update widget for elaborate phase
+        val approachTitles = approaches.map(_.title)
+        GUI_Thread.later {
+          val html = WidgetRenderer.planningInProgress(problem, "elaborate", approachTitles)
+          ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html,
+            java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+          AssistantDockable.showConversation(ChatAction.getHistory)
+        }
+        
+        // Phase 2: Elaborate each approach in parallel (3 agentic loops)
+        Output.writeln(s"[Assistant] Planning Phase 2: Elaborating ${approaches.length} approaches in parallel...")
+        val elaboratedPlans = elaborateApproachesInParallel(problem, approaches, view)
+        
+        if (AssistantDockable.isCancelled) {
+          "Planning cancelled by user."
+        } else {
+          // Update widget for select phase
+          GUI_Thread.later {
+            val html = WidgetRenderer.planningInProgress(problem, "select", approachTitles)
+            ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html,
+              java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+            AssistantDockable.showConversation(ChatAction.getHistory)
+          }
+          
+          // Phase 3: Select best plan (single API call)
+          Output.writeln("[Assistant] Planning Phase 3: Selecting best approach...")
+          val finalPlan = selectBestPlan(problem, elaboratedPlans)
+          
+          Output.writeln(s"[Assistant] Planning complete: selected approach ${finalPlan.selectedApproach}")
+          
+          // Show final planning result widget
+          GUI_Thread.later {
+            val html = WidgetRenderer.planningResult(
+              problem,
+              approachTitles,
+              finalPlan.selectedApproach,
+              finalPlan.reasoning,
+              finalPlan.plan,
+              action => AssistantDockable.registerAction(action)
+            )
+            ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, html,
+              java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+            AssistantDockable.showConversation(ChatAction.getHistory)
+          }
+          
+          finalPlan.plan
+        }
+      }
+    }
+  }
+
+  /** Capture a lightweight context snapshot from the current view state. */
+  private def captureContextSnapshot(view: View): String = {
+    try {
+      val pathOpt = GUI_Thread.now {
+        Option(view.getBuffer).flatMap(b => Option(b.getPath))
+      }
+      
+      val contextParts = scala.collection.mutable.ListBuffer[String]()
+      
+      // Add current file path
+      pathOpt.foreach(path => contextParts += s"Current file: $path")
+      
+      // Add goal state if available
+      if (IQAvailable.isAvailable) {
+        val selectionArgs = pathOpt.map(path => {
+          val offset = GUI_Thread.now {
+            Option(view.getTextArea).map(_.getCaretPosition).getOrElse(0)
+          }
+          Map(
+            "command_selection" -> "file_offset",
+            "path" -> path,
+            "offset" -> offset
+          )
+        }).getOrElse(Map("command_selection" -> "current"))
+        
+        IQMcpClient.callGetContextInfo(selectionArgs, 5000L).toOption.foreach { ctx =>
+          if (ctx.goal.hasGoal && ctx.goal.goalText.trim.nonEmpty) {
+            contextParts += s"\nCurrent goal state:\n${ctx.goal.goalText.trim}"
+          }
+        }
+      }
+      
+      if (contextParts.nonEmpty) contextParts.mkString("\n\n")
+      else "No additional context available."
+    } catch {
+      case _: Exception => "Context capture failed."
+    }
+  }
+
+  /** Phase 1: Brainstorm 3 distinct approaches using structured output. */
+  private def brainstormApproaches(
+    problem: String,
+    contextSnapshot: String,
+    scope: String
+  ): List[Approach] = {
+    val scopeHint = if (scope.nonEmpty) s"\n\nScope: $scope" else ""
+    val prompt = s"""$problem$scopeHint
+    
+$contextSnapshot
+
+Generate exactly 3 distinct approaches to solve this problem. Each approach should use a different strategy or technique. Focus on diversity - the approaches should explore different angles rather than minor variations of the same idea."""
+
+    val args = BedrockClient.invokeStructured(
+      prompt,
+      StructuredResponseSchema.PlanningBrainstorm,
+      systemPrompt = "You are a problem-solving strategist. Your task is to brainstorm multiple distinct approaches to a given problem."
+    )
+    
+    // Parse the structured response
+    val approaches = parseApproaches(args)
+    
+    // Guard against empty list - create fallback if parsing failed
+    if (approaches.isEmpty) {
+      Output.warning("[Assistant] Brainstorm returned no approaches, creating fallback")
+      List(Approach(
+        1,
+        "Direct Implementation",
+        "Implement the solution directly using available tools and techniques.",
+        "Apply straightforward problem-solving without overthinking the approach.",
+        List("Explore available resources", "Check for similar patterns", "Verify assumptions")
+      ))
+    } else {
+      approaches
+    }
+  }
+
+  /** Parse approaches from structured response arguments. */
+  private case class Approach(
+    id: Int,
+    title: String,
+    summary: String,
+    keyIdea: String,
+    explorationHints: List[String]
+  )
+
+  private def parseApproaches(args: ResponseParser.ToolArgs): List[Approach] = {
+    args.get("approaches") match {
+      case Some(ResponseParser.JsonValue(json)) =>
+        // Parse JSON array using core Jackson parser
+        val parser = jsonFactory.createParser(json)
+        val approaches = scala.collection.mutable.ListBuffer[Approach]()
+        
+        try {
+          if (parser.nextToken() == JsonToken.START_ARRAY) {
+            while (parser.nextToken() != JsonToken.END_ARRAY) {
+              if (parser.currentToken() == JsonToken.START_OBJECT) {
+                var id = 0
+                var title = ""
+                var summary = ""
+                var keyIdea = ""
+                val hints = scala.collection.mutable.ListBuffer[String]()
+                
+                while (parser.nextToken() != JsonToken.END_OBJECT) {
+                  val fieldName = parser.currentName()
+                  parser.nextToken()
+                  fieldName match {
+                    case "id" => id = parser.getIntValue
+                    case "title" => title = parser.getText
+                    case "summary" => summary = parser.getText
+                    case "key_idea" => keyIdea = parser.getText
+                    case "exploration_hints" =>
+                      if (parser.currentToken() == JsonToken.START_ARRAY) {
+                        while (parser.nextToken() != JsonToken.END_ARRAY) {
+                          hints += parser.getText
+                        }
+                      }
+                    case _ => val _ = parser.skipChildren()
+                  }
+                }
+                approaches += Approach(id, title, summary, keyIdea, hints.toList)
+              }
+            }
+          }
+        } finally {
+          parser.close()
+        }
+        
+        approaches.toList
+      case _ => List.empty
+    }
+  }
+
+  /** Phase 2: Elaborate each approach in parallel using sub-agent exploration. */
+  private case class ElaboratedPlan(approachId: Int, title: String, planText: String)
+
+  private def elaborateApproachesInParallel(
+    problem: String,
+    approaches: List[Approach],
+    view: View
+  ): List[ElaboratedPlan] = {
+    val latch = new CountDownLatch(approaches.length)
+    val results = new java.util.concurrent.ConcurrentHashMap[Int, ElaboratedPlan]()
+    
+    // Launch one sub-agent per approach with 200ms stagger
+    approaches.zipWithIndex.foreach { case (approach, idx) =>
+      if (idx > 0) Thread.sleep(200) // Stagger to avoid Bedrock throttling
+      
+      val _ = Isabelle_Thread.fork(name = s"planning-elaborate-${approach.id}") {
+        try {
+          if (!AssistantDockable.isCancelled) {
+            val prompt = buildElaborationPrompt(problem, approach)
+            val plan = runPlanningSubAgent(prompt, view)
+            val _ = results.put(approach.id, ElaboratedPlan(approach.id, approach.title, plan))
+          }
+        } catch {
+          case ex: Exception =>
+            Output.warning(s"[Assistant] Planning sub-agent ${approach.id} failed: ${ex.getMessage}")
+            val _ = results.put(approach.id, ElaboratedPlan(
+              approach.id,
+              approach.title,
+              s"Elaboration failed: ${ex.getMessage}"
+            ))
+        } finally {
+          latch.countDown()
+        }
+      }
+    }
+    
+    // Wait for all 3 sub-agents to complete (with generous timeout)
+    val totalTimeout = (AssistantOptions.getMaxToolIterations.getOrElse(15) * 30L + 60L) * 1000L
+    val _ = latch.await(totalTimeout, TimeUnit.MILLISECONDS)
+    
+    // Return results in original order
+    approaches.map(a => 
+      results.getOrDefault(a.id, ElaboratedPlan(
+        a.id,
+        a.title,
+        "Elaboration did not complete in time."
+      ))
+    )
+  }
+
+  /** Build the prompt for a sub-agent to elaborate an approach. */
+  private def buildElaborationPrompt(problem: String, approach: Approach): String = {
+    val hintsSection = if (approach.explorationHints.nonEmpty) {
+      s"\n\nExploration hints:\n${approach.explorationHints.map(h => s"- $h").mkString("\n")}"
+    } else ""
+    
+    s"""Problem: $problem
+
+Assigned Approach: ${approach.title}
+
+Summary: ${approach.summary}
+
+Key Idea: ${approach.keyIdea}$hintsSection
+
+Your task is to elaborate this approach into a detailed, actionable plan. Use the available exploration tools to:
+1. Verify that referenced entities (theorems, definitions, etc.) actually exist
+2. Check the current goal state and proof context
+3. Search for relevant lemmas and theorems
+4. Identify potential challenges or edge cases
+
+Produce a structured plan with:
+- Step-by-step implementation instructions
+- Specific theorem/lemma names to use (verified via tools)
+- Anticipated challenges and how to address them
+- Acceptance criteria for completion"""
+  }
+
+  /** Run a planning sub-agent with read-only tools. */
+  private def runPlanningSubAgent(prompt: String, view: View): String = {
+    val modelId = AssistantOptions.getModelId
+    requireAnthropicModel(modelId)
+    val temperature = AssistantOptions.getTemperature
+    val maxTokens = AssistantOptions.getMaxTokens
+    val planningSystemPrompt = PromptLoader.load("planning_agent_system.md", Map.empty)
+    val messages = List(ChatTurn(BedrockRole.User, prompt))
+    
+    // Custom agentic loop with planning-specific payload builder
+    runPlanningSubAgentLoop(
+      modelId,
+      planningSystemPrompt,
+      messages,
+      temperature,
+      maxTokens,
+      view
+    )
+  }
+
+  /** Planning sub-agent agentic loop with restricted tool set. */
+  private def runPlanningSubAgentLoop(
+    modelId: String,
+    systemPrompt: String,
+    initialMessages: List[ChatTurn],
+    temperature: Double,
+    maxTokens: Int,
+    view: View
+  ): String = {
+    val maxIter = 12 // Planning sub-agents get reduced iteration limit
+    val msgBuf = scala.collection.mutable.ListBuffer[ChatTurn]()
+    msgBuf ++= initialMessages
+
+    var iteration = 0
+    val textParts = scala.collection.mutable.ListBuffer[String]()
+    var continue = true
+    val recentCalls = scala.collection.mutable.Queue[String]()
+    val LOOP_DETECTION_WINDOW = 6
+
+    while (continue) {
+      iteration += 1
+      if (AssistantDockable.isCancelled) throw new RuntimeException("Operation cancelled")
+      
+      // Prune messages to stay within context budget
+      pruneToolLoopMessagesInPlace(msgBuf, AssistantConstants.MAX_CHAT_CONTEXT_CHARS)
+      
+      if (iteration > maxIter) {
+        msgBuf += ChatTurn(
+          BedrockRole.User,
+          "You have reached the iteration limit for planning. Please provide a summary of your findings and a structured plan based on what you've explored."
+        )
+        
+        val payload = PayloadBuilder.buildPlanningAgentToolPayload(
+          systemPrompt,
+          fromTurns(msgBuf.toList),
+          temperature,
+          maxTokens
+        )
+        val request = InvokeModelRequest.builder()
+          .modelId(modelId)
+          .body(SdkBytes.fromUtf8String(payload))
+          .build()
+        
+        enforceRateLimit()
+        try {
+          val responseJson = getClient.invokeModel(request).body().asUtf8String()
+          val (blocks, _) = ResponseParser.parseAnthropicContentBlocks(responseJson)
+          val summaryText = blocks.collect { case ResponseParser.TextBlock(t) => t }
+          if (summaryText.nonEmpty) textParts ++= summaryText
+        } catch {
+          case _: Exception => ()
+        }
+        continue = false
+      } else {
+        val payload = PayloadBuilder.buildPlanningAgentToolPayload(
+          systemPrompt,
+          fromTurns(msgBuf.toList),
+          temperature,
+          maxTokens
+        )
+        val request = InvokeModelRequest.builder()
+          .modelId(modelId)
+          .body(SdkBytes.fromUtf8String(payload))
+          .build()
+
+        enforceRateLimit()
+        val responseJson = getClient.invokeModel(request).body().asUtf8String()
+        val (blocks, _) = ResponseParser.parseAnthropicContentBlocks(responseJson)
+
+        val currentTextParts = blocks.collect { case ResponseParser.TextBlock(t) => t }
+        val toolUses = blocks.collect { case t: ResponseParser.ToolUseBlock => t }
+
+        if (currentTextParts.nonEmpty) textParts ++= currentTextParts
+
+        if (toolUses.isEmpty) {
+          continue = false
+        } else {
+          msgBuf += ChatTurn(BedrockRole.Assistant, rawContentJson(blocks))
+
+          val resultBlocks = toolUses.map { tu =>
+            // Stuck-loop detection for planning sub-agent
+            val paramStr = tu.input.toSeq.sortBy(_._1).map { case (k, v) =>
+              s"$k=${ResponseParser.toolValueToString(v).take(50)}"
+            }.mkString(",")
+            val signature = s"${tu.name}($paramStr)"
+            recentCalls.enqueue(signature)
+            if (recentCalls.length > LOOP_DETECTION_WINDOW) {
+              val _ = recentCalls.dequeue()
+            }
+            
+            // Check for exact repetition (3+ identical calls)
+            if (recentCalls.length >= 3 && recentCalls.takeRight(3).distinct.size == 1) {
+              Output.warning(s"[Assistant] Planning sub-agent stuck loop detected: '${recentCalls.last}'")
+              throw new RuntimeException(s"Planning sub-agent stuck: tool '${tu.name}' called repeatedly with no progress.")
+            }
+            
+            // Check for alternating pattern (A-B-A-B)
+            if (recentCalls.length >= 4) {
+              val last4 = recentCalls.takeRight(4).toList
+              if (last4(0) == last4(2) && last4(1) == last4(3)) {
+                Output.warning(s"[Assistant] Planning sub-agent alternating loop detected")
+                throw new RuntimeException(s"Planning sub-agent stuck in alternating loop between '${last4(0)}' and '${last4(1)}'.")
+              }
+            }
+            
+            // Execute tool with planning-only filter
+            val result = ToolId.fromWire(tu.name) match {
+              case Some(id) if ToolId.planningToolIds.contains(id) =>
+                AssistantTools.executeTool(tu.name, tu.input, view)
+              case _ =>
+                s"Tool '${tu.name}' is not available to the planning agent. Use only read-only exploration tools."
+            }
+            (tu.id, result)
+          }
+
+          msgBuf += ChatTurn(BedrockRole.User, toolResultsJson(resultBlocks))
+        }
+      }
+    }
+
+    val finalText = textParts.mkString("\n\n")
+    if (finalText.isEmpty) {
+      "Planning exploration completed but no plan was generated."
+    } else {
+      finalText
+    }
+  }
+
+  /** Phase 3: Select the best plan using structured output. */
+  private case class SelectedPlan(selectedApproach: Int, reasoning: String, plan: String)
+
+  private def selectBestPlan(problem: String, plans: List[ElaboratedPlan]): SelectedPlan = {
+    val plansSection = plans.map { p =>
+      s"""Approach ${p.approachId}: ${p.title}
+${p.planText}
+
+---"""
+    }.mkString("\n\n")
+    
+    val prompt = s"""Problem: $problem
+
+The following approaches have been elaborated:
+
+$plansSection
+
+Review all approaches and select the best one. Consider:
+- Completeness and detail of the plan
+- Feasibility of the proposed steps
+- Use of verified theorems/lemmas (not guesses)
+- Clarity of acceptance criteria
+
+Select the best approach and produce a final refined plan."""
+
+    val args = BedrockClient.invokeStructured(
+      prompt,
+      StructuredResponseSchema.PlanningSelect,
+      systemPrompt = "You are a technical reviewer selecting the best implementation plan from multiple options."
+    )
+    
+    SelectedPlan(
+      selectedApproach = args.get("selected_approach").collect {
+        case ResponseParser.IntValue(n) => n
+      }.getOrElse(1),
+      reasoning = args.get("reasoning").collect {
+        case ResponseParser.StringValue(s) => s
+      }.getOrElse("No reasoning provided."),
+      plan = args.get("plan").collect {
+        case ResponseParser.StringValue(s) => s
+      }.getOrElse("No plan provided.")
+    )
   }
 
   /**
