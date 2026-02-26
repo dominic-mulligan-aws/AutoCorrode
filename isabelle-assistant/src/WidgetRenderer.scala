@@ -3,11 +3,98 @@
 
 package isabelle.assistant
 
+import isabelle._
+
 /**
- * Renders HTML widgets for interactive chat elements (task lists, user prompts).
+ * Renders HTML widgets for interactive chat elements (task lists, user prompts, tool results).
  * Extracted from AssistantTools to separate rendering concerns from tool execution.
  */
 object WidgetRenderer {
+
+  /** Convert snake_case tool name to PascalCase for display.
+    * Example: "read_theory" → "ReadTheory"
+    */
+  private def toolNameToDisplay(wireName: String): String =
+    wireName.split("_").map(_.capitalize).mkString
+
+  /** Render HTML widget for a tool result with smart truncation.
+    * 
+    * Creates a styled card showing the tool name and a summary of the result.
+    * For short results (≤3 lines), displays inline. For longer results, shows
+    * first 3 lines plus a "Show full output ▸" clickable action link.
+    * 
+    * @param toolName Tool's wire name (e.g., "read_theory")
+    * @param result Tool execution result text
+    * @param registerAction Function to register expand action and return its ID
+    * @return HTML string for injection into chat
+    */
+  def toolResult(
+      toolName: String,
+      result: String,
+      registerAction: (() => Unit) => String
+  ): String = {
+    val border = UIColors.ToolMessage.border
+    val bg = "white"
+    val headerText = UIColors.ToolMessage.timestamp
+    val resultText = UIColors.TaskList.taskText
+    val linkColor = UIColors.linkColor
+    
+    val displayName = toolNameToDisplay(toolName)
+    val lines = result.linesIterator.toList
+    val lineCount = lines.length
+    
+    // Smart truncation: show full if ≤3 lines, otherwise truncate with expand link
+    val displayContent = if (lineCount <= 3) {
+      HtmlUtil.escapeHtml(result)
+    } else {
+      val preview = lines.take(3).mkString("\n")
+      val expandId = registerAction(() => {
+        // When user clicks "Show full output", replace the widget with full content
+        GUI_Thread.later {
+          val fullHtml = toolResultFull(toolName, result)
+          ChatAction.addMessage(ChatAction.Message(ChatAction.Widget, fullHtml,
+            java.time.LocalDateTime.now(), rawHtml = true, transient = true))
+          AssistantDockable.showConversation(ChatAction.getHistory)
+        }
+      })
+      val previewHtml = HtmlUtil.escapeHtml(preview)
+      val expandLink = s"""<div style='margin-top:6px;font-size:10pt;'>
+        |<a href='action:insert:$expandId' style='color:$linkColor;text-decoration:none;'>
+        |▸ Show full output ($lineCount lines)</a></div>""".stripMargin
+      previewHtml + expandLink
+    }
+    
+    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
+       |border-left:4px solid $border;border-radius:3px;
+       |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+       |<div style='font-size:10pt;color:$headerText;margin-bottom:3px;'>
+       |<b>→ Tool Result:</b> <span style='font-family:${MarkdownRenderer.codeFont};'>$displayName</span></div>
+       |<div style='font-family:${MarkdownRenderer.codeFont};font-size:10pt;color:$resultText;white-space:pre-wrap;'>
+       |$displayContent</div>
+       |</div>""".stripMargin
+  }
+
+  /** Render full (non-truncated) tool result widget.
+    * Used when user clicks "Show full output" on a truncated result.
+    */
+  private def toolResultFull(toolName: String, result: String): String = {
+    val border = UIColors.ToolMessage.border
+    val bg = "white"
+    val headerText = UIColors.ToolMessage.timestamp
+    val resultText = UIColors.TaskList.taskText
+    
+    val displayName = toolNameToDisplay(toolName)
+    val lineCount = result.linesIterator.size
+    
+    s"""<div style='margin:6px 0;padding:8px 10px;background:$bg;
+       |border-left:4px solid $border;border-radius:3px;
+       |overflow-x:hidden;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,0.1);'>
+       |<div style='font-size:10pt;color:$headerText;margin-bottom:3px;'>
+       |<b>→ Tool Result:</b> <span style='font-family:${MarkdownRenderer.codeFont};'>$displayName</span> <span style='color:#888;font-weight:normal;'>($lineCount lines)</span></div>
+       |<div style='font-family:${MarkdownRenderer.codeFont};font-size:10pt;color:$resultText;white-space:pre-wrap;'>
+       |${HtmlUtil.escapeHtml(result)}</div>
+       |</div>""".stripMargin
+  }
 
   /** Render HTML widget for a newly added task notification.
     * 
