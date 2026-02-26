@@ -60,7 +60,7 @@ class AssistantOptionsTest extends AnyFunSuite with Matchers {
       "assistant.verify.timeout" -> "1"
     ))
     snapshot.temperature shouldBe AssistantConstants.MIN_TEMPERATURE
-    snapshot.maxTokens shouldBe AssistantConstants.MAX_MAX_TOKENS
+    snapshot.maxTokens shouldBe 99999999 // No upper clamp - supports large token counts
     snapshot.traceDepth shouldBe 1
     snapshot.verifyTimeout shouldBe 5000L
   }

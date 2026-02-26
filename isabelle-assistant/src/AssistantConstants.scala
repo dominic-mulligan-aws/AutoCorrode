@@ -42,7 +42,7 @@ object AssistantConstants {
   val MIN_TEMPERATURE = 0.0
   val MAX_TEMPERATURE = 1.0
   val MIN_MAX_TOKENS = 100
-  val MAX_MAX_TOKENS = 8000
+  // No MAX_MAX_TOKENS - models like Opus 4.6 support up to 1M tokens
 
   // File and content limits
   val MAX_CONTENT_PREVIEW_LENGTH = 200
