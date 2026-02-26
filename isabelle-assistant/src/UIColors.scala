@@ -219,4 +219,21 @@ object UIColors {
     // String literals "..." - soft green
     def stringLiteral: String = ThemeUtils.themedHex("#a5d6ff", "#0a3069")
   }
+  
+  // Context bar colors (for token usage progress indicator)
+  object ContextBar {
+    // Bar track background
+    def background: String = ThemeUtils.themedHex("#2a2a2a", "#f5f5f5")
+    
+    // Fill colors based on usage level
+    def fillHealthy: String = ThemeUtils.themedHex("#4caf50", "#66bb6a")    // Green/teal (0-60%)
+    def fillWarning: String = ThemeUtils.themedHex("#ff9800", "#ffa726")    // Amber (60-85%)
+    def fillDanger: String = ThemeUtils.themedHex("#f44336", "#ef5350")     // Red (85-100%+)
+    
+    // Percentage text overlay
+    def text: String = ThemeUtils.themedHex("#e0e0e0", "#424242")
+    
+    // Thin border for definition
+    def border: String = ThemeUtils.themedHex("#444444", "#e0e0e0")
+  }
 }

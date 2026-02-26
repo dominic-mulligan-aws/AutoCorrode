@@ -26,6 +26,7 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
   private var refreshButton: Option[JButton] = None
   private var temperatureField: Option[JTextField] = None
   private var maxTokensField: Option[JTextField] = None
+  private var maxContextTokensField: Option[JTextField] = None
   private var maxRetriesField: Option[JTextField] = None
   private var verifyTimeoutField: Option[JTextField] = None
   private var useSledgehammerCheckbox: Option[JCheckBox] = None
@@ -83,8 +84,22 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     addComponent("Temperature (0.0-1.0):", temperature)
 
     val maxTokens = new JTextField(AssistantOptions.getMaxTokens.toString, 10)
+    maxTokens.setToolTipText("Maximum tokens in model's response (output length)")
     maxTokensField = Some(maxTokens)
-    addComponent("Max Tokens:", maxTokens)
+    addComponent("Max Output Tokens:", maxTokens)
+
+    val maxContextTokens = new JTextField(AssistantOptions.getMaxContextTokens.toString, 10)
+    maxContextTokens.setToolTipText(
+      "<html>Maximum tokens for conversation history sent to the model (input context budget).<br/>" +
+      "This controls when older messages are truncated to fit within limits.<br/><br/>" +
+      "<b>Not</b> the same as Max Output Tokens (response length).<br/><br/>" +
+      "• Default: 60,000 tokens<br/>" +
+      "• Claude models support up to 200,000 token context<br/>" +
+      "• Higher = longer conversations before truncation<br/>" +
+      "• Lower = reduces API costs and latency</html>"
+    )
+    maxContextTokensField = Some(maxContextTokens)
+    addComponent("Max Context Tokens (input):", maxContextTokens)
 
     val toolIterText = AssistantOptions.getMaxToolIterations match {
       case Some(n) => n.toString
@@ -261,6 +276,7 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       crisCheckbox,
       temperatureField,
       maxTokensField,
+      maxContextTokensField,
       maxToolIterationsField,
       maxRetriesField,
       verifyTimeoutField,
@@ -280,6 +296,7 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       requireUi(this.crisCheckbox, "crisCheckbox"),
       requireUi(this.temperatureField, "temperatureField"),
       requireUi(this.maxTokensField, "maxTokensField"),
+      requireUi(this.maxContextTokensField, "maxContextTokensField"),
       requireUi(this.maxToolIterationsField, "maxToolIterationsField"),
       requireUi(this.maxRetriesField, "maxRetriesField"),
       requireUi(this.verifyTimeoutField, "verifyTimeoutField"),
@@ -420,6 +437,13 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
       AssistantConstants.MIN_MAX_TOKENS,
       Int.MaxValue
     )
+    val maxContextTokensValue = normalizeInt(
+      maxContextTokensField.getText,
+      "Max Context Tokens",
+      AssistantConstants.DEFAULT_MAX_CONTEXT_TOKENS,
+      AssistantConstants.MIN_MAX_CONTEXT_TOKENS,
+      Int.MaxValue
+    )
     val maxToolIterationsValue = normalizeOptionalInt(
       maxToolIterationsField.getText,
       "Max Tool Iterations",
@@ -503,6 +527,7 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     jEdit.setBooleanProperty("assistant.use.cris", crisCheckbox.isSelected)
     jEdit.setProperty("assistant.temperature", temperatureValue)
     jEdit.setProperty("assistant.max.tokens", maxTokensValue)
+    jEdit.setProperty("assistant.max.context.tokens", maxContextTokensValue)
     jEdit.setProperty("assistant.max.tool.iterations", maxToolIterationsValue)
     jEdit.setProperty("assistant.verify.max.retries", maxRetriesValue)
     jEdit.setProperty("assistant.verify.timeout", verifyTimeoutValue)
@@ -527,6 +552,7 @@ class AssistantOptions extends AbstractOptionPane("assistant-general-options") {
     modelCombo.setSelectedItem(modelValue)
     temperatureField.setText(temperatureValue)
     maxTokensField.setText(maxTokensValue)
+    maxContextTokensField.setText(maxContextTokensValue)
     maxToolIterationsField.setText(maxToolIterationsValue)
     maxRetriesField.setText(maxRetriesValue)
     verifyTimeoutField.setText(verifyTimeoutValue)
@@ -588,6 +614,7 @@ object AssistantOptions {
       baseModelId: String,
       temperature: Double,
       maxTokens: Int,
+      maxContextTokens: Int,
       maxToolIterations: Option[Int],
       maxRetries: Int,
       verifyTimeout: Long,
@@ -683,6 +710,12 @@ object AssistantOptions {
         AssistantConstants.MIN_MAX_TOKENS,
         Int.MaxValue
       ),
+      maxContextTokens = intProp(
+        "assistant.max.context.tokens",
+        AssistantConstants.DEFAULT_MAX_CONTEXT_TOKENS,
+        AssistantConstants.MIN_MAX_CONTEXT_TOKENS,
+        Int.MaxValue
+      ),
       maxToolIterations =
         optIntProp(
           "assistant.max.tool.iterations",
@@ -764,6 +797,7 @@ object AssistantOptions {
   def getBaseModelId: String = snapshot.baseModelId
   def getTemperature: Double = snapshot.temperature
   def getMaxTokens: Int = snapshot.maxTokens
+  def getMaxContextTokens: Int = snapshot.maxContextTokens
   def getMaxToolIterations: Option[Int] = snapshot.maxToolIterations
   def getMaxVerificationRetries: Int = snapshot.maxRetries
   def getVerificationTimeout: Long = snapshot.verifyTimeout
@@ -946,6 +980,13 @@ object AssistantOptions {
       AssistantConstants.MIN_MAX_TOKENS,
       Int.MaxValue,
       _.maxTokens
+    ),
+    IntSetting(
+      "max_context_tokens",
+      "assistant.max.context.tokens",
+      AssistantConstants.MIN_MAX_CONTEXT_TOKENS,
+      Int.MaxValue,
+      _.maxContextTokens
     ),
     OptionalIntSetting(
       "max_tool_iterations",

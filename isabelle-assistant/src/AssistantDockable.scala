@@ -178,6 +178,7 @@ class AssistantDockable(view: View, position: String)
   private val contentPanel = createContentPanel()
   private val mainPanel = createMainPanel()
   private val (iqStatusLabel, modelLabel) = createStatusLabels()
+  private val contextBar = new ContextBarPanel()
   private val (statusLabel, cancelButton, clearButton) = createControlElements()
   private val topPanel = createTopPanel()
   private val (chatInput, sendButton, inputPanel) = createInputPanel()
@@ -259,6 +260,7 @@ class AssistantDockable(view: View, position: String)
     (iqStatus, model)
   }
 
+
   /** Apply consistent top-bar button styling (font, border, background, hover).
     */
   private def styleTopButton(btn: JButton): Unit = {
@@ -304,9 +306,10 @@ class AssistantDockable(view: View, position: String)
 
   private def createTopPanel(): JPanel = {
     val panel = new JPanel(new BorderLayout())
-    val leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+    val leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2))
     leftPanel.add(iqStatusLabel)
     leftPanel.add(modelLabel)
+    leftPanel.add(contextBar)
 
     val rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT))
     rightPanel.add(statusLabel)
@@ -783,6 +786,7 @@ class AssistantDockable(view: View, position: String)
     inputHistory = Nil
     inputHistoryIndex = -1
     savedDraft = ""
+    contextBar.reset()
     cardLayout.show(contentPanel, "html")
     chatInput.requestFocus()
   }
@@ -973,6 +977,9 @@ class AssistantDockable(view: View, position: String)
         fullRender(history, welcome)
       }
 
+      // Update context bar
+      updateContextBar(history)
+
       javax.swing.SwingUtilities.invokeLater(() =>
         htmlPane.setCaretPosition(htmlPane.getDocument.getLength)
       )
@@ -1107,6 +1114,118 @@ class AssistantDockable(view: View, position: String)
   }
 
   override def focusOnDefaultComponent(): Unit = chatInput.requestFocus()
+
+  /** Update the context bar with current conversation usage. */
+  private def updateContextBar(history: List[ChatAction.Message]): Unit = {
+    try {
+      val modelId = AssistantOptions.getModelId
+      val usage = ContextTracker.calculate(history, modelId)
+      contextBar.updateUsage(usage)
+    } catch {
+      case ex: Exception =>
+        Output.warning(s"[Assistant] Failed to update context bar: ${ex.getMessage}")
+    }
+  }
+}
+
+/** Custom panel for displaying context usage as a progress bar.
+  * 
+  * Shows token usage with semantic color coding (green → amber → red).
+  * Displays both percentage and fraction (e.g., "68% ~14K/200K").
+  * Click to show detailed breakdown in chat.
+  */
+class ContextBarPanel extends JPanel {
+  private var usage: Option[ContextTracker.ContextUsage] = None
+  
+  setPreferredSize(new java.awt.Dimension(160, 20))
+  setMinimumSize(new java.awt.Dimension(140, 20))
+  setMaximumSize(new java.awt.Dimension(180, 20))
+  setOpaque(false)
+  setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR))
+  
+  // Click to show detailed stats in chat
+  addMouseListener(new java.awt.event.MouseAdapter {
+    override def mouseClicked(e: java.awt.event.MouseEvent): Unit = {
+      usage.foreach { u =>
+        val details = s"""**Context Usage Details**
+          |
+          |* Used: ~${ContextTracker.formatThousands(u.usedTokens)} tokens
+          |* Model limit: ~${ContextTracker.formatThousands(u.maxTokens)} tokens
+          |* Budget limit: ~${ContextTracker.formatThousands(u.budgetTokens)} tokens (internal)
+          |* Messages: ${u.messageCount} total${if (u.truncatedCount > 0) s", ${u.truncatedCount} truncated" else ""}
+          |* System prompt: ~${ContextTracker.formatThousands(u.systemPromptTokens)} tokens
+          |* Percentage: ${(u.percentage * 100).toInt}%
+          |
+          |**Note:** Token estimates use a ~3.5 chars/token heuristic. Actual usage may vary slightly.
+          |Context management will be improved in future updates with auto-compaction.""".stripMargin
+        ChatAction.addResponse(details)
+      }
+    }
+  })
+  
+  override def paintComponent(g: java.awt.Graphics): Unit = {
+    super.paintComponent(g)
+    val g2 = g.asInstanceOf[java.awt.Graphics2D]
+    g2.setRenderingHint(
+      java.awt.RenderingHints.KEY_ANTIALIASING,
+      java.awt.RenderingHints.VALUE_ANTIALIAS_ON
+    )
+    
+    val w = getWidth
+    val h = getHeight
+    val radius = 4
+    
+    // Background track
+    g2.setColor(java.awt.Color.decode(UIColors.ContextBar.background))
+    g2.fillRoundRect(0, 0, w, h, radius, radius)
+    
+    // Border
+    g2.setColor(java.awt.Color.decode(UIColors.ContextBar.border))
+    g2.drawRoundRect(0, 0, w - 1, h - 1, radius, radius)
+    
+    usage.foreach { u =>
+      val pct = u.percentage
+      if (pct > 0) {
+        // Determine fill color based on percentage
+        val fillColor = if (pct < 0.60) {
+          UIColors.ContextBar.fillHealthy
+        } else if (pct < 0.85) {
+          UIColors.ContextBar.fillWarning
+        } else {
+          UIColors.ContextBar.fillDanger
+        }
+        
+        g2.setColor(java.awt.Color.decode(fillColor))
+        val fillWidth = math.min(w - 2, ((w - 2) * pct).toInt)
+        g2.fillRoundRect(1, 1, fillWidth, h - 2, radius - 1, radius - 1)
+      }
+      
+      // Text overlay: "68% ~14K/200K"
+      val text = s"${u.formatPercentage} ~${ContextTracker.formatThousands(u.usedTokens)}/${ContextTracker.formatThousands(u.maxTokens)}"
+      g2.setColor(java.awt.Color.decode(UIColors.ContextBar.text))
+      g2.setFont(g2.getFont.deriveFont(9f))
+      val fm = g2.getFontMetrics
+      val textWidth = fm.stringWidth(text)
+      val textHeight = fm.getHeight
+      val x = (w - textWidth) / 2
+      val y = (h + textHeight) / 2 - fm.getDescent
+      g2.drawString(text, x, y)
+    }
+  }
+  
+  /** Update the context bar with new usage data */
+  def updateUsage(newUsage: ContextTracker.ContextUsage): Unit = {
+    usage = Some(newUsage)
+    setToolTipText(newUsage.formatTooltip)
+    repaint()
+  }
+  
+  /** Reset the context bar to empty state */
+  def reset(): Unit = {
+    usage = None
+    setToolTipText(null)
+    repaint()
+  }
 }
 
 /** HTMLEditorKit that resolves synthetic image URLs (latex://, mermaid://)

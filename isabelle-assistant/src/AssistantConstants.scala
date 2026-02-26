@@ -37,18 +37,20 @@ object AssistantConstants {
   // Model parameters
   val DEFAULT_TEMPERATURE = 0.3
   val DEFAULT_MAX_TOKENS = 4000
+  val DEFAULT_MAX_CONTEXT_TOKENS = 60000  // Default context budget: 60K tokens
   val DEFAULT_MAX_TOOL_ITERATIONS = 10
   val DEFAULT_LOOP_DETECTION_WINDOW = 3
   val MIN_TEMPERATURE = 0.0
   val MAX_TEMPERATURE = 1.0
   val MIN_MAX_TOKENS = 100
-  // No MAX_MAX_TOKENS - models like Opus 4.6 support up to 1M tokens
+  val MIN_MAX_CONTEXT_TOKENS = 1000
+  // No MAX_MAX_TOKENS/MAX_MAX_CONTEXT_TOKENS - models like Opus 4.6 support up to 1M tokens
 
   // File and content limits
   val MAX_CONTENT_PREVIEW_LENGTH = 200
   val MAX_ERROR_MESSAGE_LENGTH = 500
   val MAX_RESPONSE_LENGTH = 10000
-  val MAX_CHAT_CONTEXT_CHARS = 100000
+  val MAX_CHAT_CONTEXT_CHARS = 210000  // ~60K tokens at 3.5 chars/token
 
   // Network constants
   val DEFAULT_MCP_PORT = 8765
