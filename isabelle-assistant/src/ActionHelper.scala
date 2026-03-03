@@ -90,4 +90,39 @@ object ActionHelper {
       }
     }
   }
+
+  /**
+   * Run an I/Q-backed goal action: fork background thread, check goal state at cursor, execute body.
+   * Similar to runIQCommand but checks for goal state instead of command presence.
+   * Use this for proof-related actions (sledgehammer, nitpick, etc.) where what matters is
+   * whether there's a proof goal, not whether the cursor is on a specific command span.
+   * 
+   * @param name Thread name for debugging
+   * @param status Status text to display while running
+   * @param body Work to execute after verifying goal exists (receives View)
+   * @param view The current jEdit view
+   */
+  def runIQGoalAction(
+      name: String,
+      status: String
+  )(body: View => Unit)(view: org.gjt.sp.jedit.View): Unit = {
+    val buffer = view.getBuffer
+    val offset = view.getTextArea.getCaretPosition
+    AssistantDockable.setStatus(status)
+    
+    val _ = Isabelle_Thread.fork(name = name) {
+      // Verify goal exists at cursor (this calls I/Q MCP so must be on background thread)
+      GoalExtractor.getGoalState(buffer, offset) match {
+        case None =>
+          GUI_Thread.later {
+            ChatAction.addResponse("No goal state available at cursor position.")
+            AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
+          }
+        case Some(_) => 
+          // Goal exists — execute the body
+          // Body will typically call IQIntegration.*Async which handles its own threading
+          body(view)
+      }
+    }
+  }
 }
