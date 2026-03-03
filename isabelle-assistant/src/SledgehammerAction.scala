@@ -12,20 +12,12 @@ object SledgehammerAction {
     ChatAction.addMessage(ChatAction.User, ":sledgehammer")
     AssistantDockable.showConversation(ChatAction.getHistory)
     
-    val buffer = view.getBuffer
-    val offset = view.getTextArea.getCaretPosition
-    val hasCommand = CommandExtractor.getCommandAtOffset(buffer, offset).isDefined
-
-    if (!hasCommand) {
-      GUI.warning_dialog(view, "Isabelle Assistant", "No command at cursor")
-    } else {
-      AssistantDockable.setStatus("Running sledgehammer...")
+    ActionHelper.runIQGoalAction("assistant-sledgehammer", "Running sledgehammer...") { v =>
       val timeout = AssistantOptions.getSledgehammerTimeout
-
       GUI_Thread.later {
-        IQIntegration.runSledgehammerAsync(view, timeout, {
+        IQIntegration.runSledgehammerAsync(v, timeout, {
           case Right(results) if results.nonEmpty =>
-            displayResults(view, results)
+            displayResults(v, results)
             AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
           case Right(_) =>
             AssistantDockable.respondInChat("Sledgehammer found no proofs.")
@@ -35,7 +27,7 @@ object SledgehammerAction {
             AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
         })
       }
-    }
+    }(view)
   }
 
   private def displayResults(view: View, results: List[IQIntegration.SledgehammerResult]): Unit = {

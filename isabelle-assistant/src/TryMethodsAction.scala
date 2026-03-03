@@ -12,14 +12,7 @@ object TryMethodsAction {
   private val methods = List("by simp", "by auto", "by blast", "by force", "by fastforce")
 
   def run(view: View): Unit = {
-    val buffer = view.getBuffer
-    val offset = view.getTextArea.getCaretPosition
-    val hasCommand = CommandExtractor.getCommandAtOffset(buffer, offset).isDefined
-
-    if (!hasCommand) {
-      GUI.warning_dialog(view, "Isabelle Assistant", "No command at cursor")
-    } else {
-      AssistantDockable.setStatus("Trying methods...")
+    ActionHelper.runIQGoalAction("assistant-try-methods", "Trying methods...") { v =>
       val timeout = AssistantOptions.getVerificationTimeout
 
       val results =
@@ -29,7 +22,7 @@ object TryMethodsAction {
       for (method <- methods) {
         GUI_Thread.later {
           IQIntegration.verifyProofAsync(
-            view,
+            v,
             method,
             timeout, { result =>
               results.put(method, result)
@@ -42,11 +35,11 @@ object TryMethodsAction {
       val _ = Isabelle_Thread.fork(name = "try-methods-wait") {
         latch.await(timeout + 2000, TimeUnit.MILLISECONDS)
         GUI_Thread.later {
-          displayResults(view, methods.map(m => (m, Option(results.get(m)))))
+          displayResults(v, methods.map(m => (m, Option(results.get(m)))))
           AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
         }
       }
-    }
+    }(view)
   }
 
   private def displayResults(view: View, results: List[(String, Option[IQIntegration.VerificationResult])]): Unit = {

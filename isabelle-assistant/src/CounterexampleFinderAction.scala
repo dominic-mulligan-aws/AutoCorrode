@@ -33,31 +33,26 @@ object CounterexampleFinderAction {
   )
 
   def run(view: View, config: Config): Unit = {
-    val buffer = view.getBuffer
-    val offset = view.getTextArea.getCaretPosition
-    val hasCommand = CommandExtractor.getCommandAtOffset(buffer, offset).isDefined
-
-    if (!hasCommand) {
-      GUI.warning_dialog(view, "Isabelle Assistant", "No command at cursor")
-    } else {
+    ActionHelper.runIQGoalAction(s"assistant-${config.toolName}", s"Running ${config.toolName}...") { v =>
+      val buffer = v.getBuffer
+      val offset = v.getTextArea.getCaretPosition
       val goal = GoalExtractor.getGoalState(buffer, offset).getOrElse("")
-      AssistantDockable.setStatus(s"Running ${config.toolName}...")
       val timeout = config.getTimeout()
 
       GUI_Thread.later {
         IQIntegration.runQueryAsync(
-          view,
+          v,
           config.queryArgs,
           timeout,
           { result =>
             GUI_Thread.later {
-              displayResult(view, result, goal, config)
+              displayResult(v, result, goal, config)
               AssistantDockable.setStatus(AssistantConstants.STATUS_READY)
             }
           }
         )
       }
-    }
+    }(view)
   }
 
   private def displayResult(

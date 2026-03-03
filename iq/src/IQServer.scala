@@ -4202,48 +4202,50 @@ end"""
       case Left(err) => return Left(err)
     }
 
-    getFileContentAndModel(filePath) match {
-      case (Some(content), Some(model)) =>
-        val snapshot = Document_Model.snapshot(model)
-        val node = snapshot.get_node(model.node_name)
-        if (node == null) {
-          Left(s"Could not load snapshot node for file: $filePath")
-        } else {
-          val lineDoc = Line.Document(content)
-          val allEntities =
-            node.command_iterator().toList.collect {
-              case (cmd, cmdOffset) if EntityKeywords.contains(cmd.span.name) =>
-                val name = EntityNamePattern
-                  .findFirstMatchIn(cmd.source.take(300))
-                  .map(_.group(1))
-                  .getOrElse("(unnamed)")
-                val line = lineDoc.position(cmdOffset).line + 1
-                Map(
-                  "line" -> line,
-                  "keyword" -> cmd.span.name,
-                  "name" -> name,
-                  "start_offset" -> cmdOffset,
-                  "end_offset" -> (cmdOffset + cmd.length),
-                  "source_preview" -> cmd.source.take(160).trim
-                )
-            }
+    GUI_Thread.now {
+      getFileContentAndModel(filePath) match {
+        case (Some(content), Some(model)) =>
+          val snapshot = Document_Model.snapshot(model)
+          val node = snapshot.get_node(model.node_name)
+          if (node == null) {
+            Left(s"Could not load snapshot node for file: $filePath")
+          } else {
+            val lineDoc = Line.Document(content)
+            val allEntities =
+              node.command_iterator().toList.collect {
+                case (cmd, cmdOffset) if EntityKeywords.contains(cmd.span.name) =>
+                  val name = EntityNamePattern
+                    .findFirstMatchIn(cmd.source.take(300))
+                    .map(_.group(1))
+                    .getOrElse("(unnamed)")
+                  val line = lineDoc.position(cmdOffset).line + 1
+                  Map(
+                    "line" -> line,
+                    "keyword" -> cmd.span.name,
+                    "name" -> name,
+                    "start_offset" -> cmdOffset,
+                    "end_offset" -> (cmdOffset + cmd.length),
+                    "source_preview" -> cmd.source.take(160).trim
+                  )
+              }
 
-          val entities = allEntities.take(maxResults)
-          Right(
-            Map(
-              "path" -> filePath,
-              "node_name" -> model.node_name.toString,
-              "total_entities" -> allEntities.length,
-              "returned_entities" -> entities.length,
-              "truncated" -> (allEntities.length > entities.length),
-              "entities" -> entities
+            val entities = allEntities.take(maxResults)
+            Right(
+              Map(
+                "path" -> filePath,
+                "node_name" -> model.node_name.toString,
+                "total_entities" -> allEntities.length,
+                "returned_entities" -> entities.length,
+                "truncated" -> (allEntities.length > entities.length),
+                "entities" -> entities
+              )
             )
+          }
+        case _ =>
+          Left(
+            s"File $filePath is not tracked by Isabelle/jEdit. Open it first before requesting entities."
           )
-        }
-      case _ =>
-        Left(
-          s"File $filePath is not tracked by Isabelle/jEdit. Open it first before requesting entities."
-        )
+      }
     }
   }
 

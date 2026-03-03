@@ -54,28 +54,22 @@ object SuggestAction {
     val _ = Isabelle_Thread.fork(name = "assistant-suggest") {
       val _ = ErrorHandler
         .withErrorHandling("suggest operation") {
-          // These I/Q MCP calls are now on background thread
-          val commandText = CommandExtractor.getCommandAtOffset(buffer, offset)
+          // Check goal state first - this is what matters for proof suggestions
           val goalState = GoalExtractor.getGoalState(buffer, offset)
-
-          (commandText, goalState) match {
-            case (None, _) =>
+          
+          goalState match {
+            case None =>
               GUI_Thread.later {
                 GUI.warning_dialog(
                   view,
                   "Isabelle Assistant",
-                  "No command at cursor position"
+                  "No goal state available at cursor position"
                 )
               }
-            case (_, None) =>
-              GUI_Thread.later {
-                GUI.warning_dialog(
-                  view,
-                  "Isabelle Assistant",
-                  "No goal state available"
-                )
-              }
-            case (Some(cmd), Some(goal)) =>
+            case Some(goal) =>
+              // Command text is optional context - best effort
+              val commandText = CommandExtractor.getCommandAtOffset(buffer, offset)
+              val cmd = commandText.getOrElse("(cursor context)")
               val canVerify =
                 IQAvailable.isAvailable && AssistantOptions.getVerifySuggestions
               val useSledgehammer =
