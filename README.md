@@ -4,7 +4,7 @@
 
 # AutoCorrode
 
-AutoCorrode provides infrastructure for reasoning about imperative programs in Isabelle/HOL. It supports classical and separation logic and includes configurable and scalable custom automation, written in Standard ML. The core of AutoCorrode is language-agnostic, with frontends and examples for both the Rust-like language µRust and C11.
+AutoCorrode provides infrastructure for reasoning about imperative programs in Isabelle/HOL. It supports classical and separation logic and includes configurable and scalable custom automation, written in Standard ML. The core of AutoCorrode is language-agnostic, with frontends and examples for both the Rust-like language µRust and an **experimental** (unvalidated so far, and still in active development) frontend for C11.
 
 AutoCorrode gets its name as the little rusty brother of the independent C verification framework [AutoCorres](https://github.com/seL4/l4v/tree/master/tools/autocorres) for Isabelle/HOL.
 
@@ -118,7 +118,7 @@ Specifications and proofs for common µRust operations.
 
 ### [Micro_C_Parsing_Frontend](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_C_Parsing_Frontend.C_To_Core_Translation.html)
 
-This session provides the C11 frontend. It parses C11 via Isabelle/C and translates C11 code into AutoCorrode Core expressions, including support for arithmetic, pointers, arrays, structs, control flow, and function calls.
+This session provides the **experimental** C11 frontend. It parses C11 via Isabelle/C and translates C11 code into AutoCorrode Core expressions, including support for arithmetic, pointers, arrays, structs, control flow, and function calls.
 
 ### [Micro_C_Examples](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_C_Examples.Simple_C_Functions.html)
 
