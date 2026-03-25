@@ -46,7 +46,7 @@ isabelle build $ISABELLE_REMOTE -d . MySession
 
 The `setup` subcommand installs AFP components on the remote by default (`Word_Lib`).
 You can override this with the `--components` flag. For example,
-`--components Word_Lib Isabelle_C` would install both `Word_Lib` and `Isabelle_C`.
+`--components Word_Lib` would install `Word_Lib`.
 To skip AFP installation entirely, pass `--components` with no arguments.
 Note: `--components` is only available on the `setup` subcommand, not `run`.
 
