@@ -40,6 +40,7 @@ MCP configuration for communication via streaming-http
 """
 
 import asyncio
+import os
 import sys
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -67,6 +68,7 @@ class ReplClient:
         self.host = host
         self.port = port
         self.token = token
+        self.recv_timeout = int(os.environ.get("IR_REPL_RECV_TIMEOUT", "600"))
 
     def connect(self, host: str | None = None, port: int | None = None,
                 token: str | None = None):
@@ -106,12 +108,17 @@ class ReplClient:
         if not self.token:
             raise RuntimeError("Not connected — call the 'connect' tool first")
         sock = socket.create_connection((self.host, self.port))
+        sock.settimeout(self.recv_timeout)
         try:
             # Authenticate
             sock.sendall((self.token + "\n").encode())
             auth_buf = b""
             while b"\n" not in auth_buf:
-                chunk = sock.recv(1024)
+                try:
+                    chunk = sock.recv(1024)
+                except socket.timeout:
+                    raise RuntimeError(
+                        f"I/R auth handshake unresponsive for {self.recv_timeout}s")
                 if not chunk:
                     raise RuntimeError("Connection closed during auth handshake")
                 auth_buf += chunk
@@ -125,7 +132,12 @@ class ReplClient:
             # Read until sentinel
             buf = b""
             while True:
-                chunk = sock.recv(4096)
+                try:
+                    chunk = sock.recv(4096)
+                except socket.timeout:
+                    raise RuntimeError(
+                        f"I/R server unresponsive for {self.recv_timeout}s — "
+                        "check ML process health")
                 if not chunk:
                     raise EOFError("Connection closed by repl.py")
                 buf += chunk
