@@ -2907,6 +2907,17 @@ class IQServer(
     *         - Option[String]: The file content if successful, None otherwise
     *         - Option[Document_Model]: The model if one exists, None otherwise
     */
+  private def getDocumentModel(filePath: String): Option[Document_Model] = {
+    try {
+      val nodeName = PIDE.resources.node_name(filePath)
+      Document_Model.get_model(nodeName)
+    } catch {
+      case ex: Exception =>
+        Output.writeln(s"I/Q Server: Error getting document model: ${ex.getMessage}")
+        None
+    }
+  }
+
   private def getFileContentAndModel(filePath: String): (Option[String], Option[Document_Model]) = {
     try {
       // Convert the file path to a node name
@@ -5333,27 +5344,27 @@ end"""
       case None => return Left("Missing required parameter: path")
     }
 
-    getFileContentAndModel(filePath) match {
-      case (_, Some(model)) =>
-        GUI_Thread.now {
-          val snapshot = Document_Model.snapshot(model)
-          val nodeStatus = Document_Status.Node_Status.make(
-            Date.now(), snapshot.state, snapshot.version, model.node_name
-          )
+    // Counter read only — kept off-EDT so polling loops never stall behind UI rendering.
+    // Uses getDocumentModel (not getFileContentAndModel) to avoid touching jEdit buffers.
+    getDocumentModel(filePath) match {
+      case Some(model) =>
+        val snapshot = Document_Model.snapshot(model)
+        val nodeStatus = Document_Status.Node_Status.make(
+          Date.now(), snapshot.state, snapshot.version, model.node_name
+        )
 
-          Right(Map(
-            "path" -> filePath,
-            "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
-            "unprocessed" -> nodeStatus.unprocessed,
-            "running" -> nodeStatus.running,
-            "finished" -> nodeStatus.finished,
-            "failed" -> nodeStatus.failed,
-            "has_errors" -> (nodeStatus.failed > 0),
-            "error_count" -> nodeStatus.failed,
-            "consolidated" -> nodeStatus.consolidated
-          ))
-        }
-      case _ => Left(s"File not tracked: $filePath")
+        Right(Map(
+          "path" -> filePath,
+          "fully_processed" -> (nodeStatus.terminated && nodeStatus.unprocessed == 0 && nodeStatus.running == 0),
+          "unprocessed" -> nodeStatus.unprocessed,
+          "running" -> nodeStatus.running,
+          "finished" -> nodeStatus.finished,
+          "failed" -> nodeStatus.failed,
+          "has_errors" -> (nodeStatus.failed > 0),
+          "error_count" -> nodeStatus.failed,
+          "consolidated" -> nodeStatus.consolidated
+        ))
+      case None => Left(s"File not tracked: $filePath")
     }
   }
 
