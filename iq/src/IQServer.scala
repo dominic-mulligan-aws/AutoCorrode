@@ -1225,7 +1225,7 @@ class IQServer(
           safeOutput(s"I/Q Server: Unknown tool name: '$name'")
           Left((ErrorCodes.METHOD_NOT_FOUND, s"Unknown tool: $name"))
         case Left(err) =>
-          Right(wrapToolCallResult(Map("text" -> err.message), isError = true))
+          Left((err.code, err.message))
       }
     } catch {
       case ex: Exception =>
@@ -1829,7 +1829,9 @@ class IQServer(
       ),
       Map(
         "name" -> "get_diagnostics",
-        "description" -> "Read-only diagnostics retrieval for errors or warnings in either a canonical command selection or an entire file.",
+        "description" -> ("Read-only diagnostics retrieval for errors or warnings in either a canonical command selection or an entire file. " +
+          "Response also carries processing state for the target (is_fully_processed, unprocessed, running, finished) so an " +
+          "empty diagnostics list can be distinguished from 'file still being processed'."),
         "inputSchema" -> Map(
           "type" -> "object",
           "properties" -> Map(
@@ -4687,6 +4689,24 @@ end"""
       .toList
   }
 
+  private def processingStatusFields(
+      snapshot: Document.Snapshot,
+      nodeName: Document.Node.Name
+  ): Map[String, Any] = {
+    val nodeStatus = Document_Status.Node_Status.make(
+      Date.now(), snapshot.state, snapshot.version, nodeName
+    )
+    val fullyProcessed = nodeStatus.terminated &&
+                         nodeStatus.unprocessed == 0 &&
+                         nodeStatus.running == 0
+    Map(
+      "is_fully_processed" -> fullyProcessed,
+      "unprocessed" -> nodeStatus.unprocessed,
+      "running" -> nodeStatus.running,
+      "finished" -> nodeStatus.finished
+    )
+  }
+
   private def handleGetDiagnostics(
       params: Map[String, Any]
   ): Either[String, Map[String, Any]] = {
@@ -4741,7 +4761,7 @@ end"""
                 "node_name" -> model.node_name.toString,
                 "count" -> diagnostics.length,
                 "diagnostics" -> diagnostics
-              )
+              ) ++ processingStatusFields(snapshot, model.node_name)
             )
           case _ =>
             Left(
@@ -4778,7 +4798,7 @@ end"""
               "command" -> commandInfoMap(command),
               "count" -> diagnostics.length,
               "diagnostics" -> diagnostics
-            )
+            ) ++ processingStatusFields(snapshot, command.node_name)
           }
         }
       }
