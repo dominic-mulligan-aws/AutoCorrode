@@ -1909,6 +1909,16 @@ class IQServer(
             "max_results" -> Map(
               "type" -> "integer",
               "description" -> "Optional result limit for query='find_theorems'. Values <= 0 are ignored and default 20 is used."
+            ),
+            "max_chars_per_result" -> Map(
+              "type" -> "integer",
+              "description" -> ("Optional per-result size cap in characters; results longer than this are truncated with a trailing marker. " +
+                s"Default ${ExploreResultCollector.DefaultMaxCharsPerResult}. Set to 0 to disable.")
+            ),
+            "max_total_chars" -> Map(
+              "type" -> "integer",
+              "description" -> ("Optional total response-body size cap in characters (applied after joining results). " +
+                s"Default ${ExploreResultCollector.DefaultMaxTotalChars}. Set to 0 to disable.")
             )
           ),
           "required" -> List("query", "command_selection"),
@@ -4822,6 +4832,14 @@ end"""
         case Right(v) => v
         case Left(err) => return Left(err)
       }
+      val maxCharsPerResult = IQArgumentUtils.optionalIntParam(params, "max_chars_per_result") match {
+        case Right(v) => v.getOrElse(ExploreResultCollector.DefaultMaxCharsPerResult)
+        case Left(err) => return Left(err)
+      }
+      val maxTotalChars = IQArgumentUtils.optionalIntParam(params, "max_total_chars") match {
+        case Right(v) => v.getOrElse(ExploreResultCollector.DefaultMaxTotalChars)
+        case Left(err) => return Left(err)
+      }
 
       if (query.isEmpty) {
         return Left("Missing required parameter: query")
@@ -4841,9 +4859,9 @@ end"""
         resolveTargetSelection(selection).map { resolvedTarget =>
           // Check if this is a batch find_theorems query (semicolon-separated patterns)
           if (parsedQuery == ExploreQuery.FindTheorems && arguments.contains(";")) {
-            executeBatchFindTheorems(resolvedTarget, arguments, maxResults)
+            executeBatchFindTheorems(resolvedTarget, arguments, maxResults, maxCharsPerResult, maxTotalChars)
           } else {
-            executeExploration(resolvedTarget, parsedQuery, arguments, maxResults)
+            executeExploration(resolvedTarget, parsedQuery, arguments, maxResults, maxCharsPerResult, maxTotalChars)
           }
         }
       }
@@ -4871,10 +4889,12 @@ end"""
   private def executeBatchFindTheorems(
     resolvedTarget: IQUtils.TargetResolution,
     patterns: String,
-    maxResults: Option[Int]
+    maxResults: Option[Int],
+    maxCharsPerResult: Int,
+    maxTotalChars: Int
   ): Map[String, Any] = {
     val patternList = patterns.split(";").map(_.trim).filter(_.nonEmpty).toList
-    
+
     if (patternList.isEmpty) {
       return Map(
         "success" -> false,
@@ -4883,19 +4903,20 @@ end"""
         "message" -> "Empty pattern list after splitting by semicolon"
       )
     }
-    
+
     Output.writeln(s"I/Q Server: Executing batch find_theorems with ${patternList.length} patterns")
-    
+
     // Execute each pattern query and collect results
     val allResults = scala.collection.mutable.ListBuffer[String]()
     var anySuccess = false
     var anyTimedOut = false
     val errors = scala.collection.mutable.ListBuffer[String]()
-    
+
     for ((pattern, idx) <- patternList.zipWithIndex) {
       Output.writeln(s"I/Q Server: Running find_theorems query ${idx + 1}/${patternList.length}: $pattern")
-      val result = executeExploration(resolvedTarget, ExploreQuery.FindTheorems, pattern, maxResults)
-      
+      // Pass per-result cap but disable per-call total cap: the total cap applies to the aggregated output below.
+      val result = executeExploration(resolvedTarget, ExploreQuery.FindTheorems, pattern, maxResults, maxCharsPerResult, 0)
+
       if (boolField(result, "success")) {
         anySuccess = true
         val results = stringField(result, "results").trim
@@ -4908,8 +4929,10 @@ end"""
         result.get("error").foreach(err => errors += s"Pattern ${idx + 1} ($pattern): ${err.toString}")
       }
     }
-    
-    val aggregatedResults = if (allResults.nonEmpty) allResults.mkString("\n\n") else "No results"
+
+    val aggregatedResults =
+      if (allResults.isEmpty) "No results"
+      else ExploreResultCollector.truncateResults(allResults.toList, 0, maxTotalChars)
     val message = if (anySuccess && allResults.nonEmpty) {
       s"Batch find_theorems completed: ${allResults.length} of ${patternList.length} patterns found results"
     } else if (anyTimedOut) {
@@ -4930,6 +4953,30 @@ end"""
       "patterns_count" -> patternList.length,
       "successful_patterns" -> allResults.length
     ) ++ (if (errors.nonEmpty) Map("errors" -> errors.toList) else Map.empty)
+  }
+
+  private object ExploreResultCollector {
+    val DefaultMaxCharsPerResult: Int = 5000
+    val DefaultMaxTotalChars: Int = 100000
+
+    def truncateResults(
+        results: List[String],
+        maxCharsPerResult: Int,
+        maxTotalChars: Int
+    ): String = {
+      val capped =
+        if (maxCharsPerResult <= 0) results
+        else results.map(r =>
+          if (r.length > maxCharsPerResult)
+            r.take(maxCharsPerResult) +
+              s"\n… (result truncated: ${r.length - maxCharsPerResult} more chars)"
+          else r
+        )
+      val joined = capped.mkString("\n\n")
+      if (maxTotalChars <= 0 || joined.length <= maxTotalChars) joined
+      else joined.take(maxTotalChars) +
+        s"\n\n… (response truncated: ${joined.length - maxTotalChars} more chars)"
+    }
   }
 
   /**
@@ -4984,7 +5031,10 @@ end"""
       }
     }
 
-    def getResultsAsString(): String = {
+    def getResultsAsString(
+        maxCharsPerResult: Int = ExploreResultCollector.DefaultMaxCharsPerResult,
+        maxTotalChars: Int = ExploreResultCollector.DefaultMaxTotalChars
+    ): String = {
       val resultsSnapshot = xmlResults
       // Debug: log result collection
       Output.writeln(s"I/Q Server: Getting results as string, xmlResults.size=${resultsSnapshot.size}")
@@ -5014,9 +5064,9 @@ end"""
       } else {
         // Apply sledgehammer-specific filtering
         if (queryType == "sledgehammer") {
-          filterSledgehammerResults(results)
+          filterSledgehammerResults(results, maxTotalChars)
         } else {
-          results.mkString("\n\n")
+          ExploreResultCollector.truncateResults(results, maxCharsPerResult, maxTotalChars)
         }
       }
     }
@@ -5025,7 +5075,7 @@ end"""
      * Filters sledgehammer results to only include those with "Try this: .* ms)"
      * that have been successfully replayed.
      */
-    private def filterSledgehammerResults(results: List[String]): String = {
+    private def filterSledgehammerResults(results: List[String], maxTotalChars: Int): String = {
       // Fixed regex to handle prover name before "Try this" and decimal milliseconds
       val tryThisPattern = """.*Try this:\s+(.+?)\s+\((\d+(?:\.\d+)?)\s*ms\)""".r
 
@@ -5051,7 +5101,7 @@ end"""
         distinctResults.foreach { result =>
           Output.writeln(s"I/Q Server: Final result: ${result.take(100)}")
         }
-        distinctResults.mkString("\n\n")
+        ExploreResultCollector.truncateResults(distinctResults, 0, maxTotalChars)
       }
     }
 
@@ -5075,7 +5125,9 @@ end"""
     resolvedTarget: IQUtils.TargetResolution,
     query: ExploreQuery,
     arguments: String,
-    maxResults: Option[Int]
+    maxResults: Option[Int],
+    maxCharsPerResult: Int = ExploreResultCollector.DefaultMaxCharsPerResult,
+    maxTotalChars: Int = ExploreResultCollector.DefaultMaxTotalChars
   ): Map[String, Any] = {
 
     try {
@@ -5167,7 +5219,7 @@ end"""
           "arguments" -> finalArguments,
           "selection" -> targetSelectionToMap(resolvedTarget.selection),
           "command_found" -> displayText,
-          "results" -> collector.getResultsAsString(),
+          "results" -> collector.getResultsAsString(maxCharsPerResult, maxTotalChars),
           "timed_out" -> timedOut,
           "message" -> (if (timedOut) "Query timed out after 30 seconds"
                         else if (collector.wasSuccessful())
